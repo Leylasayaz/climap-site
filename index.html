@@ -1,0 +1,1343 @@
+<meta charset="utf-8">
+<title>Clim-Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: tam ekran 3D Diyarbakır dioraması (öğleden sonra sıcağı) arkada sabit; bölümler solda koyu cam kartlar, kamera her bölümde başka bir sahneye uçar. */
+/* Tek tema bilinçli seçim: sahne gündüz, kartlar koyu; her renk aşağıda açıkça tanımlı. */
+:root {
+  --page: #1a1412;
+  --panel: rgba(24, 19, 17, 0.86);
+  --panel-2: rgba(255, 245, 235, 0.04);
+  --ink: #f5efe7;
+  --muted: #b6aaa0;
+  --line: rgba(245, 239, 231, 0.12);
+  --heat: #ff7a3d;     /* Clim-Map sıcak vurgusu */
+  --ember: #e8473a;    /* kritik */
+  --amber: #f6b03c;    /* uyarı */
+  --cool: #4fd1c5;     /* serin çatı, gölge, müdahale sonrası */
+  --ramp: linear-gradient(90deg, #6a176e, #bc3754, #e8473a, #f37819, #fca50a, #f6d746);
+
+  --f-display: "Archivo", "Arial Black", system-ui, sans-serif;
+  --f-body: "Figtree", "Helvetica Neue", Arial, sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--page); color: var(--ink); }
+body { font-family: var(--f-body); font-size: 1rem; line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+h1, h2, h3, h4 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+p { margin: 0; }
+b, strong { font-weight: 650; color: var(--ink); }
+:focus-visible { outline: 2px solid var(--heat); outline-offset: 3px; border-radius: 4px; }
+
+#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+.nogl #gl { display: none; }
+.nogl body { background: radial-gradient(ellipse at 70% 30%, #f3c79a 0%, #c98a5a 40%, #3a2620 100%); }
+#tags { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.tag { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  font-family: var(--f-data); font-size: 0.6875rem; letter-spacing: 0.02em; color: var(--ink);
+  background: rgba(24, 19, 17, 0.88); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; transition: opacity .35s; }
+.tag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--heat); flex: none; }
+.tag.water::before, .tag.ok::before { background: var(--cool); }
+.tag.hot::before { background: var(--ember); box-shadow: 0 0 0 3px rgba(232,71,58,0.3); }
+.tag.warn::before { background: var(--amber); }
+.tag.place { background: transparent; border-color: transparent; font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+.tag.place::before { background: var(--ink); width: 5px; height: 5px; }
+
+/* marka ve bölüm navigasyonu */
+.brand { position: fixed; z-index: 20; top: calc(16px + env(safe-area-inset-top, 0px)); left: max(20px, env(safe-area-inset-left, 0px));
+  font-family: var(--f-display); font-weight: 850; font-stretch: 112%; font-size: 1.05rem; color: var(--ink); text-decoration: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; transition: opacity .3s; }
+.brand span { color: var(--heat); }
+.brand.hide { opacity: 0; pointer-events: none; }
+.dots { position: fixed; z-index: 20; right: max(14px, env(safe-area-inset-right, 0px)); top: 41%; transform: translateY(-50%); display: grid; gap: 4px; }
+.dots a { display: flex; align-items: center; justify-content: flex-end; gap: 10px; text-decoration: none; height: 22px; }
+.dots a i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.75); background: rgba(24,19,17,0.4); flex: none; transition: transform .2s, background .2s; }
+.dots a span { font-family: var(--f-data); font-size: 0.6875rem; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 2px 7px; opacity: 0; transform: translateX(6px); transition: opacity .2s, transform .2s; pointer-events: none; }
+.dots a:hover span, .dots a:focus-visible span, .dots a.on span { opacity: 1; transform: none; }
+.dots a.on i { background: var(--heat); border-color: var(--heat); transform: scale(1.25); }
+
+/* hikâye */
+main { position: relative; z-index: 5; pointer-events: none;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.ch { min-height: 100vh; display: flex; align-items: center; padding-block: 14vh; }
+.ch .wrap { width: 100%; max-width: 1320px; margin: 0 auto; padding-left: clamp(0px, 3vw, 48px); padding-right: 64px; }
+.card { pointer-events: auto; width: min(31rem, 100%); background: var(--panel); -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--line); border-radius: 10px; padding: 28px; display: grid; gap: 18px; box-shadow: 0 20px 60px rgba(20, 10, 5, 0.35); }
+.card.wide { width: min(58rem, 100%); }
+.eyebrow { font-family: var(--f-data); font-size: 0.6875rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--heat); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.eyebrow .pts { color: var(--muted); border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; letter-spacing: 0.06em; }
+h2 { font-size: clamp(1.9rem, 3.2vw, 2.6rem); line-height: 1.04; font-weight: 800; font-stretch: 100%; letter-spacing: -0.015em; }
+h3 { font-size: 1.05rem; font-weight: 700; line-height: 1.25; }
+.lead { font-size: 1.0625rem; color: var(--ink); }
+.body { font-size: 0.9375rem; color: #ddd3c9; }
+.muted { color: var(--muted); }
+.small { font-size: 0.8125rem; line-height: 1.5; }
+.fine { font-family: var(--f-data); font-size: 0.6875rem; color: var(--muted); letter-spacing: 0.02em; }
+
+/* giriş */
+.hero .card { background: transparent; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0; width: min(40rem, 100%); }
+.hero h1 { font-size: clamp(4.2rem, 11vw, 8.8rem); line-height: 0.86; font-weight: 900; font-stretch: 112%; letter-spacing: -0.04em; color: var(--ink); text-shadow: 0 4px 30px rgba(40, 18, 8, 0.35); }
+.hero h1 .m { background: var(--ramp); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
+.hero .eyebrow { color: #fff3e6; text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+.hero .lead { font-size: 1.25rem; line-height: 1.5; color: #fff8f0; text-shadow: 0 1px 12px rgba(30, 14, 8, 0.6); max-width: 34rem; }
+.motto { font-family: var(--f-display); font-stretch: 112%; font-weight: 800; font-size: clamp(1.3rem, 2.6vw, 1.9rem); display: flex; gap: 0.55em; flex-wrap: wrap; text-shadow: 0 2px 14px rgba(30,14,8,0.5); }
+.motto span:nth-child(1) { color: var(--heat); } .motto span:nth-child(2) { color: #fff8f0; } .motto span:nth-child(3) { color: var(--cool); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips span { font-family: var(--f-data); font-size: 0.75rem; padding: 5px 11px; border-radius: 99px; background: rgba(24,19,17,0.72); border: 1px solid var(--line); color: var(--ink); }
+.scrollhint { font-family: var(--f-data); font-size: 0.75rem; color: #fff3e6; text-shadow: 0 1px 4px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 10px; }
+.scrollhint i { width: 1px; height: 28px; background: currentColor; display: inline-block; }
+
+/* bileşenler */
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: grid; gap: 2px; align-content: start; }
+.stat .v { font-family: var(--f-data); font-weight: 600; font-size: 1.5rem; line-height: 1.15; color: var(--heat); font-variant-numeric: tabular-nums; }
+.stat .v.r { color: var(--ember); }
+.stat .k { font-size: 0.75rem; line-height: 1.4; color: var(--muted); }
+.stat.full { grid-column: 1 / -1; }
+.bullets { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; font-size: 0.9375rem; color: #ddd3c9; }
+.bullets li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; }
+.bullets li::before { content: ""; width: 6px; height: 6px; margin-top: 0.6em; border-radius: 50%; background: var(--heat); }
+.bullets li.off { color: var(--muted); }
+.bullets li.off::before { background: transparent; border: 1px solid var(--muted); }
+.thesis { border-left: 2px solid var(--heat); padding-left: 14px; font-size: 0.9375rem; color: var(--ink); }
+
+.who { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+.who div { border: 1px solid var(--line); border-radius: 6px; padding: 11px; display: grid; gap: 3px; background: var(--panel-2); }
+.who b { font-size: 0.875rem; }
+.who span { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+.who em { font-style: normal; font-family: var(--f-data); font-size: 0.625rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ember); }
+
+.tl { list-style: none; margin: 0; padding: 0; display: grid; }
+.tl li { display: grid; grid-template-columns: 8rem 1fr; gap: 14px; padding-block: 10px; border-top: 1px solid var(--line); font-size: 0.875rem; }
+.tl li:last-child { border-bottom: 1px solid var(--line); }
+.tl .w { font-family: var(--f-data); font-size: 0.75rem; color: var(--heat); padding-top: 2px; }
+
+.formula { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.formula .t { border: 1px solid var(--line); border-radius: 5px; padding: 6px 9px; background: var(--panel-2); display: grid; }
+.formula .t b { font-size: 0.875rem; }
+.formula .t span { font-family: var(--f-data); font-size: 0.625rem; color: var(--muted); }
+.formula .op { font-family: var(--f-data); color: var(--heat); }
+.formula .t.res { border-color: var(--heat); }
+.scale { display: grid; gap: 5px; }
+.scale .bar { height: 9px; border-radius: 2px; background: var(--ramp); }
+.scale .tk { display: flex; justify-content: space-between; font-family: var(--f-data); font-size: 0.625rem; color: var(--muted); }
+
+.sms { display: grid; gap: 8px; }
+.msg { background: #f5efe7; color: #231b17; border-radius: 12px 12px 12px 3px; padding: 10px 12px; font-size: 0.875rem; line-height: 1.45; max-width: 26rem; }
+.msg .h { display: flex; justify-content: space-between; gap: 10px; font-family: var(--f-data); font-size: 0.625rem; color: #7a6a60; margin-bottom: 3px; }
+.msg.b { background: #2b2320; color: var(--ink); border: 1px solid var(--line); border-radius: 12px 12px 3px 12px; justify-self: end; }
+.msg.b .h { color: var(--muted); }
+
+.need { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); padding: 14px; display: grid; gap: 10px; }
+.need .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.need .id { font-family: var(--f-data); font-size: 0.6875rem; color: var(--muted); }
+.need dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+.need dt { font-family: var(--f-data); font-size: 0.625rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+.need dd { margin: 0; font-family: var(--f-data); font-size: 0.875rem; font-weight: 600; }
+.track { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 4px; }
+.track span { font-size: 0.6875rem; line-height: 1.3; color: var(--muted); border-top: 3px solid var(--line); padding-top: 5px; }
+.track span.done { color: var(--ink); border-color: var(--cool); }
+.track span.now { color: var(--ink); border-color: var(--amber); }
+.pill { display: inline-block; font-family: var(--f-data); font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 8px; border-radius: 99px; border: 1px solid currentColor; }
+.pill.hot { color: var(--ember); } .pill.ok { color: var(--cool); } .pill.warn { color: var(--amber); } .pill.idle { color: var(--muted); }
+.btn { pointer-events: auto; font: inherit; font-weight: 650; font-size: 0.875rem; padding: 9px 15px; border-radius: 6px; border: 1px solid var(--heat); background: var(--heat); color: #1d120d; cursor: pointer; text-decoration: none; display: inline-block; }
+.btn:hover { background: #ff925e; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn.ghost:hover { border-color: var(--ink); }
+
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .legend { display: flex; flex-wrap: wrap; gap: 14px; font-family: var(--f-data); font-size: 0.6875rem; color: var(--muted); }
+.chart .legend i { display: inline-block; width: 16px; height: 2px; vertical-align: middle; margin-right: 6px; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+.kpi { border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; gap: 2px; background: var(--panel-2); }
+.kpi .v { font-family: var(--f-data); font-weight: 600; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.kpi .v.c { color: var(--cool); }
+.kpi .k { font-size: 0.6875rem; color: var(--muted); line-height: 1.35; }
+
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 6px; }
+.steps button { width: 100%; height: 100%; text-align: left; font: inherit; font-size: 0.75rem; line-height: 1.3; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 9px; cursor: pointer; display: grid; gap: 4px; align-content: start; }
+.steps button .n { font-family: var(--f-data); }
+.steps button[aria-selected="true"] { color: var(--ink); border-color: var(--heat); background: rgba(255,122,61,0.1); }
+.steps button[aria-selected="true"] .n { color: var(--heat); }
+.sensor { display: flex; justify-content: space-between; align-items: end; gap: 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding-block: 12px; }
+.sensor .l { font-family: var(--f-data); font-size: 0.625rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); display: grid; gap: 3px; }
+.sensor .l span { font-family: var(--f-body); letter-spacing: 0; text-transform: none; font-size: 0.875rem; color: var(--ink); }
+.sensor .v { font-family: var(--f-data); font-weight: 600; font-size: 2.6rem; line-height: 1; font-variant-numeric: tabular-nums; transition: color .4s; }
+.sensor .v.hot { color: var(--ember); } .sensor .v.cool { color: var(--cool); }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; counter-reset: f; }
+.flow > div { position: relative; padding: 0 14px 0 0; display: grid; gap: 8px; align-content: start; }
+.flow .hd { display: flex; align-items: center; gap: 8px; }
+.flow .hd i { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--heat); color: var(--heat); font-style: normal; font-family: var(--f-data); font-size: 0.75rem; display: grid; place-items: center; flex: none; background: var(--page); position: relative; z-index: 1; }
+.flow .hd::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.flow > div:last-child .hd::after { display: none; }
+.flow h3 { font-size: 0.95rem; }
+.flow .tool { font-family: var(--f-data); font-size: 0.6875rem; line-height: 1.35; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; background: var(--panel-2); }
+.flow .tool small { display: block; color: var(--muted); font-family: var(--f-body); font-size: 0.6875rem; }
+
+.dash { display: grid; grid-template-columns: 1.1fr 1fr; gap: 14px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { font: inherit; font-size: 0.8125rem; font-weight: 600; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 8px 10px; cursor: pointer; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--heat); }
+.mini { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #221a17; }
+.mini svg { display: block; width: 100%; height: auto; }
+.feed { display: grid; gap: 6px; align-content: start; }
+.feed div { border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px; display: grid; gap: 2px; background: var(--panel-2); }
+.feed b { font-size: 0.8125rem; display: flex; gap: 8px; align-items: center; }
+.feed b::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--heat)); flex: none; }
+.feed span { font-family: var(--f-data); font-size: 0.6875rem; color: var(--muted); }
+
+.merge { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: stretch; }
+.merge .src { border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: grid; gap: 4px; align-content: start; background: var(--panel-2); }
+.merge .src b { font-family: var(--f-display); font-stretch: 110%; font-weight: 800; }
+.merge .src span { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+.merge .plus { align-self: center; font-family: var(--f-data); color: var(--heat); font-size: 1.3rem; }
+.merge .res { grid-column: 1 / -1; border: 1px solid var(--heat); border-radius: 6px; padding: 12px; display: grid; gap: 4px; background: rgba(255,122,61,0.08); }
+.merge .res b { font-family: var(--f-display); font-stretch: 110%; font-weight: 800; color: var(--heat); }
+.merge .res span { font-size: 0.8125rem; line-height: 1.45; }
+
+.risks { display: grid; }
+.risks div { display: grid; grid-template-columns: 9.5rem 1fr; gap: 12px; padding-block: 9px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
+.risks span { color: var(--muted); }
+
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; min-width: 34rem; }
+th { text-align: left; font-family: var(--f-data); font-size: 0.625rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
+td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: #ddd3c9; }
+td:first-child { color: var(--ink); font-weight: 600; }
+td:last-child { font-family: var(--f-data); color: var(--heat); white-space: nowrap; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.two h3 { font-size: 0.8125rem; font-family: var(--f-data); font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+
+.partners { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
+.partners div { border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px; display: grid; gap: 1px; background: var(--panel-2); }
+.partners b { font-size: 0.8125rem; }
+.partners span { font-size: 0.6875rem; color: var(--muted); }
+.me { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; border-top: 1px solid var(--line); padding-top: 14px; }
+.me .av { width: 44px; height: 44px; border-radius: 50%; background: var(--ramp); display: grid; place-items: center; font-family: var(--f-display); font-weight: 900; color: #1d120d; }
+
+details { border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
+details + details { margin-top: 6px; }
+summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 3rem 1fr auto; gap: 10px; align-items: center; padding: 11px 13px; font-weight: 650; font-size: 0.9375rem; }
+summary::-webkit-details-marker { display: none; }
+summary .p { font-family: var(--f-data); font-size: 0.75rem; color: var(--heat); }
+summary::after { content: "+"; font-family: var(--f-data); color: var(--muted); }
+details[open] summary::after { content: "−"; }
+details > p { padding: 0 13px 13px calc(13px + 3rem + 10px); font-size: 0.875rem; color: #ddd3c9; }
+.sources { margin: 0; padding-left: 1.1rem; display: grid; gap: 5px; font-size: 0.75rem; color: var(--muted); line-height: 1.5; }
+
+footer.end { position: relative; z-index: 5; padding-block: 6vh 34vh; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); pointer-events: none; }
+footer.end .wrap { max-width: 1320px; margin: 0 auto; padding-left: clamp(0px, 3vw, 48px); }
+footer.end .big { font-family: var(--f-display); font-stretch: 112%; font-weight: 900; font-size: clamp(2.4rem, 7vw, 5.4rem); line-height: 0.92; letter-spacing: -0.03em; color: #fff8f0; text-shadow: 0 4px 30px rgba(40,18,8,0.45); }
+footer.end .big span { color: var(--cool); }
+footer.end p { margin-top: 12px; font-family: var(--f-data); font-size: 0.75rem; color: #fff3e6; text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+
+/* canlı HUD */
+.hud { position: fixed; z-index: 15; right: max(52px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 268px;
+  background: var(--panel); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; display: grid; gap: 6px; font-family: var(--f-data); font-size: 0.6875rem; }
+.hud .hd { display: flex; align-items: center; gap: 7px; color: var(--ink); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.hud .hd i { width: 7px; height: 7px; border-radius: 50%; background: var(--cool); flex: none; }
+.hud .hd i.warn { background: var(--amber); } .hud .hd i.hot { background: var(--ember); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
+.hud dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; }
+.hud dt { color: var(--muted); }
+.hud dd { margin: 0; text-align: right; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.hud dd.hot { color: var(--ember); } .hud dd.warn { color: var(--amber); } .hud dd.ok { color: var(--cool); }
+.hud .sl { display: grid; gap: 3px; padding-top: 6px; border-top: 1px solid var(--line); }
+.hud .sl div { display: flex; justify-content: space-between; color: var(--muted); }
+.hud .sl output { color: var(--ink); font-weight: 600; }
+.hud input[type=range] { width: 100%; margin: 0; accent-color: var(--heat); }
+.hud .ft { color: var(--muted); font-size: 0.625rem; }
+
+#tip { position: fixed; z-index: 25; pointer-events: none; min-width: 200px; background: rgba(24,19,17,0.95); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 0.75rem; display: grid; gap: 3px; transform: translate(14px, 14px); }
+#tip b { font-family: var(--f-display); font-size: 0.95rem; }
+#tip .r { display: flex; justify-content: space-between; gap: 14px; font-family: var(--f-data); font-size: 0.6875rem; color: var(--muted); }
+#tip .r span:last-child { color: var(--ink); }
+
+@media (max-width: 960px) {
+  .ch { min-height: 92vh; align-items: flex-end; padding-block: 12vh 30vh; }
+  .ch .wrap { padding-right: 28px; }
+  .hero { align-items: center; }
+  .card.wide { width: 100%; }
+  .dash { grid-template-columns: 1fr; }
+  .flow { grid-template-columns: repeat(2, minmax(0,1fr)); row-gap: 14px; }
+  .flow > div:nth-child(2) .hd::after { display: none; }
+  .hud { right: max(12px, env(safe-area-inset-right, 0px)); left: max(12px, env(safe-area-inset-left, 0px)); width: auto; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .hud dl { grid-template-columns: auto 1fr auto 1fr; }
+  .hud .ft { display: none; }
+  .dots a span { display: none; }
+  .dots { gap: 2px; right: max(6px, env(safe-area-inset-right, 0px)); }
+  .dots a { height: 18px; }
+}
+@media (max-width: 560px) {
+  .card { padding: 20px; }
+  .stats, .who, .partners, .two { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .need dl { grid-template-columns: 1fr 1fr; }
+  .merge { grid-template-columns: 1fr; } .merge .plus { justify-self: center; }
+  .tl li, .risks div { grid-template-columns: 1fr; gap: 2px; }
+  .flow { grid-template-columns: 1fr; } .flow .hd::after { display: none; }
+  .hud .sl { display: none; }
+  details > p { padding-left: 13px; }
+}
+@media (prefers-reduced-motion: reduce) { .hud .hd i.hot { animation: none; } .tag, .dots a span { transition: none; } }
+</style>
+
+<canvas id="gl" aria-hidden="true"></canvas>
+<div id="tags" aria-hidden="true"></div>
+<div id="tip" hidden></div>
+<a class="brand hide" id="brand" href="#giris">Clim<span>-</span>Map</a>
+<nav class="dots" id="dots" aria-label="Bölümler"></nav>
+
+<main>
+  <section class="ch hero" id="giris" data-t="Giriş">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">Tech4Climate Ideathon · Diyarbakır · 23 Ekim 2026</div>
+      <h1>Clim-<span class="m">Map</span></h1>
+      <div class="motto"><span>Bul.</span><span>Yönlendir.</span><span>Ölç.</span></div>
+      <p class="lead">Diyarbakır'da aşırı sıcaktan en çok etkilenen ama resmi verilerde görünmeyen çocukları ve açık havada çalışanları bulan, yardımı tam onlara yönlendiren ve sonucu ölçen iklim adaleti haritası.</p>
+      <div class="chips"><span>İklim adaleti</span><span>Aşırı sıcak</span><span>Uyum</span><span>Gençlik</span><span>Açık veri</span></div>
+      <div class="scrollhint"><i></i>Kaydır: sıcaktan müdahaleye</div>
+    </div></div>
+  </section>
+
+  <section class="ch" id="sorun" data-t="Sorun">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">01 · Hangi sorunu çözüyoruz <span class="pts">20p</span></div>
+      <h2>Sıcak herkese eşit değmiyor.</h2>
+      <p class="body">İklim değişikliği Diyarbakır'da en çok aşırı sıcak olarak hissediliyor. 2024, Türkiye'de son 54 yılın en sıcak yılı oldu.</p>
+      <div class="stats">
+        <div class="stat"><span class="v">38,5°C</span><span class="k">Temmuz ortalama en yüksek (MGM, 1929–2025)</span></div>
+        <div class="stat"><span class="v r">46,2°C</span><span class="k">kentte ölçülen en yüksek sıcaklık</span></div>
+        <div class="stat"><span class="v">33°C+</span><span class="k">okullar açıkken, Haziran ve Eylül ortalama en yüksek</span></div>
+        <div class="stat"><span class="v">%57</span><span class="k">Temmuz 2025'te Dicle Elektrik bölgesinde bir ayda tüketim artışı</span></div>
+      </div>
+      <p class="thesis">Klimaya erişebilenler serinlerken erişemeyenler sıcakta kalıyor. Uyum yatırımları en çok ihtiyacı olana gitmiyor, çünkü kimin nerede olduğu tek bir yerde görünmüyor.</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="gorunmez" data-t="Görünmeyenler">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">02 · Resmi veride görünmeyenler</div>
+      <h2>Uydu sınıfın içini, pazarın gölgesini görmez.</h2>
+      <div class="who">
+        <div><em>Okul</em><b>Sınıftaki çocuklar</b><span>Çocukların vücut ısısı yetişkinlerden hızlı yükselir. Klimasız okullarda sıcaklık arttıkça öğrenme düşer.</span></div>
+        <div><em>Pazar yeri</em><b>Tezgâhtaki satıcılar</b><span>Gün boyu güneş altında, gölge ve su olmadan.</span></div>
+        <div><em>Şantiye</em><b>İnşaat işçileri</b><span>2025'te en az 2.105 işçi çalışırken öldü (İSİG). Sıcak ayrı bir neden olarak kayda geçmiyor.</span></div>
+        <div><em>Kurye noktası</em><b>Bekleyen kuryeler</b><span>Siparişler arası beklemede gölgesiz köşelerde.</span></div>
+      </div>
+      <p class="small muted">UNICEF'e göre Avrupa ve Orta Asya'da çocukların yarısı sık sıcak hava dalgalarına maruz.</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="simdi" data-t="Neden şimdi">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">03 · Neden şimdi</div>
+      <h2>Her il bir iklim eylem planı yazmak zorunda.</h2>
+      <ol class="tl">
+        <li><span class="w">Ağustos 2026</span><span>Yerel İklim Değişikliği Eylem Planları Yönetmeliği yürürlüğe girdi (Resmî Gazete, sayı 33330).</span></li>
+        <li><span class="w">Her yıl</span><span>Her il iklim risk değerlendirmesi verisi sunmak zorunda.</span></li>
+        <li><span class="w">2027 sonu</span><span>İlk planlar karara bağlanacak, adil geçiş ilkesiyle.</span></li>
+      </ol>
+      <p class="body">Yönetmelik çocukları, kadınları, yaşlıları ve engellileri en fazla etkilenebilecekler arasında sayıyor. Bu riski mahalle ölçeğinde ve kırılgan grupları gösterecek şekilde ortaya koyan ortak bir araç yok. Belediyenin ihtiyaç duyduğu veri tam olarak Clim-Map'in ürettiği veri.</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="bul" data-t="Bul">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">04 · Bul · uydudan ve sahadan <span class="pts">30p</span></div>
+      <h2>Uydu tarar, gençler tamamlar.</h2>
+      <p class="body">Landsat ve Sentinel-2 her geçişte mahalle bazında yüzey sıcaklığı, yeşil alan ve gölge eksikliğini çıkarır. WorldPop nüfus verisi çocuk ve yaşlı yoğunluğunu ekler.</p>
+      <p class="body">Eğitimli genç gönüllüler uydunun göremediğini sahadan girer: sınıf sıcaklıkları, gölgesiz duraklar, pazar yerleri, şantiyeler, kuryelerin beklediği noktalar.</p>
+      <ul class="bullets">
+        <li>Her kayıt fotoğraf ve konumla doğrulanır.</li>
+        <li>İnternet olmadan çalışan açık kaynak form: KoboToolbox.</li>
+        <li>Kişisel veri değil, yer ve koşul verisi toplanır.</li>
+      </ul>
+    </div></div>
+  </section>
+
+  <section class="ch" id="risk" data-t="Risk puanı">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">05 · Risk puanı</div>
+      <h2>Her mahalleye 1–5 arası bir puan.</h2>
+      <p class="body">Katmanlar IPCC'nin risk çerçevesine göre birleşir. Sütun ne kadar yüksek ve sıcak renkliyse, orada yaşayanlar o kadar risk altında.</p>
+      <div class="formula" aria-label="Risk eşittir tehlike çarpı maruziyet çarpı kırılganlık">
+        <span class="t"><b>Tehlike</b><span>yüzey sıcaklığı</span></span><span class="op">×</span>
+        <span class="t"><b>Maruziyet</b><span>nüfus · okul</span></span><span class="op">×</span>
+        <span class="t"><b>Kırılganlık</b><span>çocuk · yaşlı · gölge</span></span><span class="op">=</span>
+        <span class="t res"><b>Risk</b><span>1–5</span></span>
+      </div>
+      <div class="scale"><div class="bar"></div><div class="tk"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div></div>
+      <p class="small muted">Sıcak ama boş bir arazi düşük puan alır; sıcak, kalabalık ve gölgesiz bir mahalle en yüksek puanı alır. Hücrelerin üzerine gelerek ayrıntıyı görün. Haritadaki değerler temsilidir.</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="yonlendir" data-t="Yönlendir">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">06 · Yönlendir</div>
+      <h2>Riskli her noktaya somut bir müdahale.</h2>
+      <ul class="bullets">
+        <li><span><b>Okullar:</b> serin çatı boyası veya gölgelik.</span></li>
+        <li><span><b>Serin Durak:</b> pazar yeri, şantiye ve kurye noktalarında gölgelik ve içme suyu.</span></li>
+        <li><span><b>Belediye:</b> önceliklendirilmiş müdahale listesi.</span></li>
+      </ul>
+      <div class="sms">
+        <div class="msg"><div class="h"><span>Clim-Map · Bağlar şantiye şefi</span><span>09:30</span></div>Yarın Bağlar'da hava 41°C. Bugün 12:00–16:00 arası ağır işe ara verin. En yakın Serin Durak: şantiye girişi.</div>
+        <div class="msg b"><div class="h"><span>Okul-07 müdürlüğü</span><span>09:31</span></div>Teneffüsler gölgeli alanda, su molası her derste.</div>
+      </div>
+      <p class="fine">Örnek mesajlar · uyarı 6331 sayılı İSG Kanunu'nun işverene yüklediği riskleri önleme yükümlülüğünü kolaylaştırır</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="eslestir" data-t="Destekçi">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">07 · Destekçi eşleştirme</div>
+      <h2>İhtiyaç haritada, destekçi bir tık uzakta.</h2>
+      <p class="body">Şirketler, kurumlar ve bireysel destekçiler ihtiyaçları haritada görür ve doğrudan finanse eder. Müdahaleler belediye bütçesini beklemeden yapılabilir.</p>
+      <div class="need">
+        <div class="top"><b>Okul-07 · serin çatı boyası</b><span class="id">İhtiyaç DY-0412 · Bağlar</span></div>
+        <dl>
+          <div><dt>Risk</dt><dd style="color:var(--ember)">5 / 5</dd></div>
+          <div><dt>Sınıf</dt><dd>34,0°C</dd></div>
+          <div><dt>Gölge</dt><dd>yok</dd></div>
+        </dl>
+        <div class="track"><span class="done">Saha kaydı</span><span class="done">Doğrulandı</span><span class="now">Destekçi bekliyor</span><span>Uygulama</span></div>
+        <div class="row"><span class="pill warn">Finansman bekliyor</span><button class="btn" type="button" id="fundBtn">Bu ihtiyacı destekle</button></div>
+      </div>
+      <p class="fine">Örnek veri · arayüz maketi · eşleştirme altyapısı: İhtiyaç Haritası</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="olc" data-t="Ölç">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">08 · Ölç</div>
+      <h2>Çatı beyaz, sınıf serin. Sensör kanıtlar.</h2>
+      <div class="chart">
+        <div id="chart" role="img" aria-label="Okul-07 sınıf sıcaklığı, müdahale öncesi ve sonrası, 08:00 ile 16:00 arası"></div>
+        <div class="legend"><span><i style="background:var(--ember)"></i>Öncesi (Haziran)</span><span><i style="background:var(--cool)"></i>Serin çatı sonrası</span><span><i style="background:var(--muted)"></i>32°C eşiği</span></div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span class="v c">−1,7°C</span><span class="k">en sıcak saatte fark</span></div>
+        <div class="kpi"><span class="v">5 → 3</span><span class="k">32°C üstü ders saati</span></div>
+        <div class="kpi"><span class="v">1,27–2,21</span><span class="k">Gana pilotunda ölçülen düşüş (°C)</span></div>
+      </div>
+      <p class="fine">Eğriler örnektir · Gana verisi: EdTech Hub, 2026</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="senaryo" data-t="Senaryo">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">09 · Örnek senaryo · Bağlar</div>
+      <h2>Bir okulun bir ayı.</h2>
+      <ol class="steps" role="tablist" aria-label="Senaryo adımları">
+        <li><button role="tab" id="st0" data-step="0" aria-selected="true"><span class="n">01</span>Haziran, hava 40°C'yi geçiyor</button></li>
+        <li><button role="tab" id="st1" data-step="1" aria-selected="false"><span class="n">02</span>Sınıf 34°C, okul kırmızı</button></li>
+        <li><button role="tab" id="st2" data-step="2" aria-selected="false"><span class="n">03</span>Bir şirket çatı boyasını finanse ediyor</button></li>
+        <li><button role="tab" id="st3" data-step="3" aria-selected="false"><span class="n">04</span>Bir ay sonra ölçüm</button></li>
+      </ol>
+      <div class="sensor"><div class="l">Sınıf sensörü · ESP32<span>Okul-07, Bağlar</span></div><div class="v" id="sVal">31,2°C</div></div>
+      <div class="row"><span class="pill warn" id="sPill">İzleniyor</span><button class="btn ghost" id="playBtn" type="button">Senaryoyu oynat</button></div>
+      <p class="body" id="sText">Hava sıcaklığı 40°C'yi geçiyor. Sistem meteoroloji tahminini eşikle karşılaştırıyor ve riskli mahallelerdeki işverenlere ve okullara uyarıyı kendiliğinden gönderiyor.</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="veri" data-t="Altyapı">
+    <div class="wrap"><div class="card wide">
+      <div class="eyebrow">10 · Teknoloji altyapısı</div>
+      <h2>Uydudan ve sınıftan karara dört adım.</h2>
+      <div class="flow">
+        <div><div class="hd"><i>1</i></div><h3>Topla</h3>
+          <div class="tool">Landsat · Sentinel-2<small>yüzey sıcaklığı, yeşil alan</small></div>
+          <div class="tool">WorldPop<small>nüfus, çocuk ve yaşlı</small></div>
+          <div class="tool">ESP32 sensör<small>sınıf sıcaklık-nem, Wi-Fi/GSM</small></div>
+          <div class="tool">KoboToolbox<small>çevrimdışı saha formu</small></div></div>
+        <div><div class="hd"><i>2</i></div><h3>İşle</h3>
+          <div class="tool">Google Earth Engine<small>yeni veri geldikçe risk puanı yeniden hesaplanır</small></div></div>
+        <div><div class="hd"><i>3</i></div><h3>Sakla</h3>
+          <div class="tool">PostgreSQL / PostGIS<small>tüm mekânsal katmanlar, eşleştirme kaydı</small></div></div>
+        <div><div class="hd"><i>4</i></div><h3>Harekete geç</h3>
+          <div class="tool">Leaflet web harita<small>belediye, destekçi, vatandaş</small></div>
+          <div class="tool">SMS · bildirim API<small>eşik aşılınca otomatik uyarı</small></div></div>
+      </div>
+      <p class="small muted">Havada uçan ışıklı paketler bu akışın kendisi: okullardaki sensörlerden belediyedeki sisteme. Müdahalenin sonucu sensör verisiyle aynı kayda bağlanır.</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="panel" data-t="Tek harita">
+    <div class="wrap"><div class="card wide">
+      <div class="eyebrow">11 · Tek harita, üç görünüm</div>
+      <h2>Belediye, destekçi ve vatandaş aynı haritaya bakar.</h2>
+      <div class="dash">
+        <div class="mini" id="mini"></div>
+        <div style="display:grid;gap:10px;align-content:start">
+          <div class="tabs" role="tablist" aria-label="Görünüm">
+            <button role="tab" id="tb0" data-v="belediye" aria-selected="true">Belediye</button>
+            <button role="tab" id="tb1" data-v="destekci" aria-selected="false">Destekçi</button>
+            <button role="tab" id="tb2" data-v="vatandas" aria-selected="false">Vatandaş</button>
+          </div>
+          <div class="feed" id="feed" role="tabpanel"></div>
+        </div>
+      </div>
+      <p class="fine">Örnek veri · arayüz maketi</p>
+    </div></div>
+  </section>
+
+  <section class="ch" id="ozgun" data-t="Özgün yön">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">12 · Özgün yön <span class="pts">15p</span></div>
+      <h2>Rapor değil, müdahale sistemi.</h2>
+      <div class="merge">
+        <div class="src"><b>CLIMAAX</b><span>AB destekli iklim risk yöntemi. Mersin Büyükşehir Nisan 2026'da bununla risk atlası hazırladı. Riski bir defalık raporda gösterir.</span></div>
+        <div class="plus">+</div>
+        <div class="src"><b>İhtiyaç Haritası</b><span>2015'ten beri mahalle ölçeğinde ihtiyaç-destekçi eşleştirmesi. Bildirilen ihtiyacı karşılar.</span></div>
+        <div class="res"><b>Clim-Map</b><span>Riski önceden hesaplar, kimsenin bildirmediği ihtiyacı sahadan bulur, onu finanse edilmiş ve sonucu ölçülen bir müdahaleye bağlar.</span></div>
+      </div>
+      <ul class="bullets">
+        <li><span><b>Görünmeyeni görünür kılar:</b> uydunun boşluğunu sahadaki gençler doldurur.</span></li>
+        <li><span><b>Canlı sistem:</b> her yıl güncellenir, riski ölçülmüş sonuca bağlar.</span></li>
+        <li><span><b>81 il için ortak yöntem:</b> Diyarbakır'da sıcak, başka illerde sel ya da kuraklık.</span></li>
+      </ul>
+    </div></div>
+  </section>
+
+  <section class="ch" id="plan" data-t="Uygulama">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">13 · Nasıl hayata geçer <span class="pts">15p</span></div>
+      <h2>2027 pilot takvimi.</h2>
+      <ol class="tl">
+        <li><span class="w">Nis–Haz 2027</span><span>Eğitimli gönüllüler sahaya çıkar. İl Milli Eğitim izniyle sınıf sıcaklıkları ölçülür, açık havada çalışılan noktalar haritalanır.</span></li>
+        <li><span class="w">Haz–Eyl 2027</span><span>En riskli okullarda ve noktalarda ilk müdahaleler, sonuçlar ölçülür.</span></li>
+        <li><span class="w">2027 sonu</span><span>Belediyeye mahalle ölçeğinde risk ve kırılganlık analizi.</span></li>
+        <li><span class="w">2028</span><span>“Yerelde COPuyoruz” illerinden başlayarak YLC ve İklim Elçileri ağlarıyla diğer illere.</span></li>
+      </ol>
+      <div class="risks">
+        <div><b>Veri erişimi</b><span>Açık WorldPop ile başlanır; belediye ve TÜİK ile veri paylaşım protokolü.</span></div>
+        <div><b>Gönüllü güvenliği</b><span>Saha 10:00 öncesi ve 17:00 sonrası; eşik aşılırsa iptal. İlk yardım ve sıcakta güvenli çalışma eğitimi, en az iki kişi, su ve şapka.</span></div>
+        <div><b>Süreklilik</b><span>Sertifikalı eğitim; Bazalt ve YLC programlarına bağlı.</span></div>
+        <div><b>Belediye beklemesi</b><span>Destekçi eşleştirmesiyle bütçe beklenmeden finansman.</span></div>
+        <div><b>Tarafsızlık, gizlilik</b><span>Yöntem ve veri açık; kişisel veri toplanmaz.</span></div>
+      </div>
+    </div></div>
+  </section>
+
+  <section class="ch" id="etki" data-t="Etki">
+    <div class="wrap"><div class="card wide">
+      <div class="eyebrow">14 · Etki ve ölçülebilir göstergeler <span class="pts">20p</span></div>
+      <h2>Geride kalanlar sayıyla görünür.</h2>
+      <div class="two">
+        <div><h3>Kimler yararlanır</h3><ul class="bullets small"><li>Sıcak sınıflarda ders gören çocuklar</li><li>Pazar, şantiye ve sokakta çalışanlar</li><li>Yaşlılar ve klimaya erişemeyen haneler</li><li>Kanıta dayalı plan yapan belediye</li><li>Sahada iklim verisi üretmeyi öğrenen gençler</li></ul></div>
+        <div><h3>Ne değişir</h3><ul class="bullets small"><li>Uyum kaynakları tahmine göre değil, en çok etkilenene göre dağılır</li><li>Her müdahalenin sonucu ölçülür</li><li>Serin çatı, ağaç ve gölge gibi pasif çözümler klima kaynaklı elektrik talebi artışını sınırlar</li></ul></div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Gösterge</th><th>Nasıl ölçülür</th><th>2027 hedefi</th></tr></thead>
+        <tbody>
+          <tr><td>Eğitimli gönüllü</td><td>Bazalt ve YLC ortak çağrısı, sertifika kaydı</td><td>≥20 · yarısı kadın</td></tr>
+          <tr><td>Doğrulanmış saha noktası</td><td>Fotoğraflı, konumlu KoboToolbox kaydı (20 × 15)</td><td>300</td></tr>
+          <tr><td>Sınıf sıcaklığı ölçümü</td><td>ESP32 sensör; 4 merkez ilçede en riskli mahallelerden 7–8 okul</td><td>30 okul</td></tr>
+          <tr><td>Sınıf sıcaklığında düşüş</td><td>Müdahale öncesi ve sonrası sensör karşılaştırması</td><td>3 okulda ≥1,5°C</td></tr>
+          <tr><td>32°C üstü ders saati</td><td>Sensör kaydı, ders programıyla eşlenir</td><td>azalma</td></tr>
+          <tr><td>Serin Durak</td><td>Günlük kullanım sahadan sayılır; uyarıya kayıtlı işveren takibi</td><td>3 nokta</td></tr>
+          <tr><td>Belediyeye risk analizi</td><td>Mahalle ölçeğinde risk ve kırılganlık veri seti</td><td>2027 sonu</td></tr>
+          <tr><td>Yaygınlaştırma</td><td>Yöntemi uygulayan il sayısı</td><td>+2 il · 2028</td></tr>
+        </tbody>
+      </table></div>
+    </div></div>
+  </section>
+
+  <section class="ch" id="ortak" data-t="İş birlikleri">
+    <div class="wrap"><div class="card">
+      <div class="eyebrow">15 · Hedeflenen iş birlikleri</div>
+      <h2>Kim neyi taşıyor.</h2>
+      <div class="partners">
+        <div><b>Diyarbakır Büyükşehir</b><span>veri ve sonuçların ilk kullanıcısı</span></div>
+        <div><b>Dicle Üniversitesi</b><span>yöntemin bilimsel doğrulaması</span></div>
+        <div><b>Bazalt Gençlik Derneği</b><span>gönüllü çağrısı ve saha ekibi</span></div>
+        <div><b>UNICEF Türkiye YLC</b><span>gönüllü çağrısı ve saha ekibi</span></div>
+        <div><b>İklim Elçileri</b><span>diğer illerde eğitimli genç ağı</span></div>
+        <div><b>İl Milli Eğitim</b><span>okul izinleri</span></div>
+        <div><b>İhtiyaç Haritası</b><span>destekçi eşleştirme altyapısı</span></div>
+        <div><b>Karacadağ Kalkınma Ajansı</b><span>pilot finansmanı · AB ve UNDP hibeleri</span></div>
+      </div>
+      <div class="me"><div class="av">SA</div><p class="small"><b>Sultan Ayaz</b> · Diyarbakır'da yaşıyor. Genç Liderler Konseyi Eş Koordinatörü ve COP31'de UNICEF delegasyonunun Genç Muhabiri. COP'ta konuşulan iklim adaleti gündemini kendi şehrinde somut bir işe dönüştürmek istiyor.</p></div>
+    </div></div>
+  </section>
+
+  <section class="ch" id="juri" data-t="Jüri soruları">
+    <div class="wrap"><div class="card wide">
+      <div class="eyebrow">16 · Jüri sorarsa</div>
+      <h2>Beş soru, beş kısa cevap.</h2>
+      <div>
+        <details open><summary><span class="p">20p</span>Hangi iklim sorununu çözüyorsunuz?</summary><p>Diyarbakır'da aşırı sıcağın adil olmayan dağılımını. En çok etkilenen çocuklar ve açık havada çalışanlar resmi veride görünmüyor; bu yüzden ağaç, gölgelik, serin çatı ve su noktası gibi yatırımlar onlara gitmiyor.</p></details>
+        <details><summary><span class="p">30p</span>Teknoloji çözümün neresinde?</summary><p>Uydu ve nüfus verisi Google Earth Engine'de otomatik işlenip her mahalleye 1–5 risk puanı verilir. Gönüllüler KoboToolbox ile sahadan doğrulanmış kayıt girer, ESP32 sensörler sınıf sıcaklığını anlık gönderir. PostGIS ve Leaflet haritası müdahaleyi önerir, eşik aşılınca SMS uyarısı otomatik gider, sonuç sensörle ölçülür.</p></details>
+        <details><summary><span class="p">15p</span>Benzerlerinden farkı ne?</summary><p>CLIMAAX risk yöntemini ve İhtiyaç Haritası'nın eşleştirme modelini tek sistemde birleştirir. Bir defalık atlas yerine her yıl güncellenen, riski finanse edilmiş ve ölçülmüş bir müdahaleye bağlayan canlı bir sistem. Türkiye'de bunu iklim adaleti odağında yapan bir sistem yok.</p></details>
+        <details><summary><span class="p">15p</span>Nasıl hayata geçer?</summary><p>2027 Nisan–Haziran saha, Haziran–Eylül ilk müdahaleler, yıl sonunda belediyeye risk analizi. Bazalt, YLC ve İklim Elçileri gönüllü ağını; Karacadağ Kalkınma Ajansı ile AB ve UNDP hibeleri pilot finansmanını; destekçi eşleştirmesi müdahaleleri taşır.</p></details>
+        <details><summary><span class="p">20p</span>Etkisini nasıl ölçeceksiniz?</summary><p>30 okulda sensörle sınıf sıcaklığı, 3 okulda müdahale sonrası en az 1,5°C düşüş ve 32°C üstü ders saatindeki azalma; 3 Serin Durak'ın günlük kullanımı; 300 doğrulanmış saha noktası; 2028 sonuna kadar 2 ilde daha uygulama.</p></details>
+      </div>
+      <details><summary><span class="p">·</span>Kaynaklar</summary>
+        <ol class="sources" style="padding:0 13px 13px 2.2rem">
+          <li>Meteoroloji Genel Müdürlüğü, Diyarbakır il istatistikleri (1929–2025) ve 2024 Yılı İklim Raporu.</li>
+          <li>Yerel İklim Değişikliği Eylem Planları ile İl İklim Değişikliği Koordinasyon Kurulları Hakkında Yönetmelik, Resmî Gazete, 4.8.2026, sayı 33330.</li>
+          <li>UNICEF Avrupa ve Orta Asya Bölge Ofisi, 27.7.2023; Park vd., “Heat and Learning”, NBER 24639.</li>
+          <li>İSİG Meclisi 2025 verileri (Bianet); “Dicle Elektrik bölgesinde Temmuz'da rekor tüketim”, İşçi Haber, 7.8.2025.</li>
+          <li>Mersin Büyükşehir Belediyesi, CLIMAAX Mersin İklim Risk Atlası, Nisan 2026; ILO, “NeedsMap” (İhtiyaç Haritası).</li>
+          <li>EdTech Hub, “Cool Roofs in Northern Ghana: Results From a Pilot Study”, 1.4.2026.</li>
+          <li>UNDP, “What Does It Mean to Leave No One Behind?”, 2018.</li>
+          <li>6331 sayılı İş Sağlığı ve Güvenliği Kanunu; İklim Elçileri programı (Ekonomi Gazetesi, 2026).</li>
+        </ol>
+      </details>
+      <p class="fine">3D şehir, risk hücreleri ve sensör değerleri temsilidir; pilotta gerçek uydu ve saha verisiyle değişir.</p>
+    </div></div>
+  </section>
+</main>
+
+<footer class="end"><div class="wrap">
+  <div class="big">Hiç kimseyi<br><span>geride bırakmamak.</span></div>
+  <p>Clim-Map · Sultan Ayaz · Tech4Climate Ideathon · Diyarbakır 2026</p>
+</div></footer>
+
+<aside class="hud" aria-label="Canlı simülasyon">
+  <div class="hd"><i id="hDot"></i><span id="hHead">CANLI · Okul-07 · Bağlar</span></div>
+  <dl>
+    <dt>Saat</dt><dd id="hClock">14:00</dd>
+    <dt>Hava</dt><dd id="hAir">40,0 °C</dd>
+    <dt>Sınıf</dt><dd id="hClass">34,0 °C</dd>
+    <dt>Durum</dt><dd id="hStat">Normal</dd>
+  </dl>
+  <div class="sl"><div><label for="tmax">Günün en yükseği</label><output id="tmaxOut" for="tmax">40,5°C</output></div>
+    <input type="range" id="tmax" min="32" max="46.2" step="0.1" value="40.5"></div>
+  <div class="ft">simülasyon · 1 gün = 48 sn · temsili veri</div>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var fmt = function (n, d) { return n.toFixed(d == null ? 1 : d).replace(".", ","); };
+  var clamp = function (v, a, b) { return Math.min(b, Math.max(a, v)); };
+  var g2 = function (x, z, cx, cz, s) { var dx = x - cx, dz = z - cz; return Math.exp(-(dx * dx + dz * dz) / (2 * s * s)); };
+  var $ = function (id) { return document.getElementById(id); };
+
+  var S = { ch: "giris", step: 0, tmax: 40.5, clock: 14, air: 40, cls: 34, alertWin: false, funded: false };
+
+  /* ================= Arayüz ================= */
+  /* bölümler ve noktalı navigasyon */
+  var chapters = Array.prototype.slice.call(document.querySelectorAll("section.ch"));
+  var dots = $("dots");
+  chapters.forEach(function (c) {
+    var a = document.createElement("a"); a.href = "#" + c.id; a.dataset.id = c.id;
+    a.innerHTML = "<span>" + c.dataset.t + "</span><i></i>"; a.setAttribute("aria-label", c.dataset.t);
+    a.addEventListener("click", function (e) { e.preventDefault(); c.scrollIntoView({ behavior: reduce ? "auto" : "smooth" }); });
+    dots.appendChild(a);
+  });
+  function setChapter(id) {
+    S.ch = id;
+    dots.querySelectorAll("a").forEach(function (a) { a.classList.toggle("on", a.dataset.id === id); });
+    $("brand").classList.toggle("hide", id === "giris");
+    if (id === "bul") scanStart = performance.now();
+  }
+  var scanStart = 0;
+  var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) setChapter(e.target.id); }); }, { rootMargin: "-48% 0px -48% 0px" });
+  chapters.forEach(function (c) { io.observe(c); });
+  setChapter("giris");
+
+  /* HUD */
+  var tmaxEl = $("tmax");
+  tmaxEl.addEventListener("input", function () { S.tmax = parseFloat(tmaxEl.value); $("tmaxOut").textContent = fmt(S.tmax) + "°C"; });
+
+  /* senaryo */
+  var STEPS = [
+    { v: "31,2°C", c: "", p: ["İzleniyor", "warn"], t: "Hava sıcaklığı 40°C'yi geçiyor. Sistem meteoroloji tahminini eşikle karşılaştırıyor ve riskli mahallelerdeki işverenlere ve okullara uyarıyı kendiliğinden gönderiyor." },
+    { v: "34,0°C", c: "hot", p: ["Kırmızı · gölge yok", "hot"], t: "Sınıf sensörü 34°C gösteriyor ve bahçede gölge yok. Sistem okulu haritada kırmızıyla işaretliyor; ihtiyaç destekçilere açılıyor." },
+    { v: "34,0°C", c: "hot", p: ["Finanse edildi", "warn"], t: "Yerel bir şirket haritadan bu ihtiyacı seçiyor ve serin çatı boyasını finanse ediyor. Finansman ve uygulama durumu platformda izleniyor." },
+    { v: "32,4°C", c: "cool", p: ["−1,6°C · yayımlandı", "ok"], t: "Bir ay sonra sensör sınıfın daha serin olduğunu gösteriyor. Sonuç sensör verisiyle aynı kayda bağlanıyor ve haritada herkesin görebileceği şekilde yayımlanıyor." }
+  ];
+  var stepBtns = document.querySelectorAll(".steps button");
+  function setStep(i) {
+    S.step = i; var s = STEPS[i];
+    stepBtns.forEach(function (b) { b.setAttribute("aria-selected", String(+b.dataset.step === i)); });
+    $("sVal").textContent = s.v; $("sVal").className = "v " + s.c;
+    $("sPill").textContent = s.p[0]; $("sPill").className = "pill " + s.p[1];
+    $("sText").textContent = s.t;
+  }
+  stepBtns.forEach(function (b) { b.addEventListener("click", function () { stopPlay(); setStep(+b.dataset.step); }); });
+  var playT = null;
+  function stopPlay() { if (playT) { clearInterval(playT); playT = null; $("playBtn").textContent = "Senaryoyu oynat"; } }
+  $("playBtn").addEventListener("click", function () {
+    if (playT) { stopPlay(); return; }
+    var i = 0; setStep(0); $("playBtn").textContent = "Durdur";
+    playT = setInterval(function () { i++; if (i > 3) { stopPlay(); return; } setStep(i); }, 2600);
+  });
+
+  /* destekçi düğmesi (maket) */
+  $("fundBtn").addEventListener("click", function () {
+    S.funded = !S.funded;
+    var need = this.closest(".need"), spans = need.querySelectorAll(".track span"), pill = need.querySelector(".pill");
+    spans[2].className = S.funded ? "done" : "now"; spans[3].className = S.funded ? "now" : "";
+    pill.textContent = S.funded ? "Finanse edildi · uygulamada" : "Finansman bekliyor"; pill.className = "pill " + (S.funded ? "ok" : "warn");
+    this.textContent = S.funded ? "Desteği geri al" : "Bu ihtiyacı destekle";
+  });
+
+  /* ölç grafiği: ölçekli SVG */
+  (function () {
+    var before = [27.5, 28.8, 30.4, 31.9, 33.0, 33.8, 34.2, 34.0, 33.1];
+    var after = [27.0, 28.0, 29.2, 30.4, 31.4, 32.1, 32.5, 32.4, 31.6];
+    var W = 520, H = 210, L = 38, R = 12, T = 10, B = 26;
+    var x = function (i) { return L + i / 8 * (W - L - R); }, y = function (t) { return T + (36 - t) / 10 * (H - T - B); };
+    var s = '<svg viewBox="0 0 ' + W + " " + H + '" xmlns="http://www.w3.org/2000/svg">';
+    for (var t = 26; t <= 36; t += 2) s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(t) + '" y2="' + y(t) + '" style="stroke:rgba(245,239,231,0.08)"/><text x="' + (L - 6) + '" y="' + (y(t) + 3.5) + '" text-anchor="end" style="fill:#b6aaa0;font:10px IBM Plex Mono,monospace">' + t + "°</text>";
+    for (var h = 0; h <= 8; h += 2) s += '<text x="' + x(h) + '" y="' + (H - 8) + '" text-anchor="middle" style="fill:#b6aaa0;font:10px IBM Plex Mono,monospace">' + (h + 8 < 10 ? "0" : "") + (h + 8) + ":00</text>";
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(32) + '" y2="' + y(32) + '" style="stroke:#b6aaa0;stroke-dasharray:4 4"/>';
+    function path(a) { return a.map(function (v, i) { return (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1); }).join(" "); }
+    s += '<path d="' + path(before) + " L" + x(8) + " " + y(26) + " L" + x(0) + " " + y(26) + 'Z" style="fill:rgba(232,71,58,0.12)"/>';
+    s += '<path d="' + path(before) + '" style="fill:none;stroke:#e8473a;stroke-width:2.5;stroke-linejoin:round"/>';
+    s += '<path d="' + path(after) + '" style="fill:none;stroke:#4fd1c5;stroke-width:2.5;stroke-linejoin:round"/>';
+    s += '<circle cx="' + x(6) + '" cy="' + y(34.2) + '" r="4" style="fill:#e8473a"/><text x="' + (x(6) - 6) + '" y="' + (y(34.2) - 9) + '" text-anchor="end" style="fill:#f5efe7;font:600 11px IBM Plex Mono,monospace">34,2°</text>';
+    s += '<circle cx="' + x(6) + '" cy="' + y(32.5) + '" r="4" style="fill:#4fd1c5"/><text x="' + (x(6) + 8) + '" y="' + (y(32.5) + 16) + '" style="fill:#4fd1c5;font:600 11px IBM Plex Mono,monospace">32,5°</text>';
+    s += "</svg>";
+    $("chart").innerHTML = s;
+  })();
+
+  /* tek harita: mini harita ve görünümler */
+  (function () {
+    var m = '<svg viewBox="0 0 320 220" xmlns="http://www.w3.org/2000/svg">';
+    m += '<rect width="320" height="220" style="fill:#221a17"/>';
+    for (var gx = 0; gx < 320; gx += 20) m += '<line x1="' + gx + '" x2="' + gx + '" y1="0" y2="220" style="stroke:rgba(245,239,231,0.04)"/>';
+    for (var gy = 0; gy < 220; gy += 20) m += '<line y1="' + gy + '" y2="' + gy + '" x1="0" x2="320" style="stroke:rgba(245,239,231,0.04)"/>';
+    m += '<circle cx="78" cy="88" r="46" style="fill:#f37819;opacity:.35"/><circle cx="130" cy="150" r="44" style="fill:#e8473a;opacity:.55"/><circle cx="160" cy="48" r="36" style="fill:#bc3754;opacity:.4"/><circle cx="196" cy="104" r="24" style="fill:#e8473a;opacity:.65"/>';
+    m += '<ellipse cx="196" cy="104" rx="20" ry="24" style="fill:none;stroke:#f5efe7;stroke-width:1.5;stroke-dasharray:2 2"/>';
+    m += '<path d="M268 0 C 258 60, 284 110, 262 160 S 270 210, 266 220" style="fill:none;stroke:#4fd1c5;stroke-width:6;opacity:.6"/>';
+    var pts = [[120, 130, "#e8473a"], [104, 156, "#4fd1c5"], [150, 162, "#f6b03c"], [168, 140, "#f6b03c"], [70, 80, "#f5efe7"], [160, 40, "#f5efe7"], [190, 110, "#4fd1c5"]];
+    pts.forEach(function (p) { m += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="4.5" style="fill:' + p[2] + ';stroke:#221a17;stroke-width:1.5"/>'; });
+    [["KAYAPINAR", 52, 40], ["YENİŞEHİR", 140, 14], ["SUR", 186, 74], ["BAĞLAR", 100, 200], ["DİCLE", 280, 200]].forEach(function (l) { m += '<text x="' + l[1] + '" y="' + l[2] + '" style="fill:#b6aaa0;font:9px IBM Plex Mono,monospace;letter-spacing:1.5px">' + l[0] + "</text>"; });
+    m += "</svg>";
+    $("mini").innerHTML = m;
+    var V = {
+      belediye: [["Bağlar · risk 5/5", "7 okul ölçüldü · 3'ü 33°C üstü", "var(--ember)"], ["Sur · risk 5/5", "gölgesiz 2 pazar yeri", "var(--ember)"], ["Yenişehir · risk 3/5", "1 şantiye bölgesi izleniyor", "var(--amber)"], ["Yıllık risk değerlendirmesi", "mahalle ölçeğinde veri seti hazır", "var(--cool)"]],
+      destekci: [["Okul-07 · serin çatı", "risk 5/5 · finansman bekliyor", "var(--ember)"], ["Pazar yeri · Serin Durak", "gölgelik + su · finanse edildi", "var(--amber)"], ["Şantiye bölgesi · su noktası", "uygulamada", "var(--amber)"], ["Okul-12 · gölgelik", "tamamlandı · sınıf −1,8°C", "var(--cool)"]],
+      vatandas: [["Bugün 12:00–16:00 yüksek sıcak", "ağır işe ara, su için", "var(--ember)"], ["En yakın Serin Durak", "350 m · gölge + içme suyu", "var(--cool)"], ["Mahallen: Bağlar", "risk 5/5 · 3 müdahale sürüyor", "var(--amber)"], ["Gönüllü ol", "Nisan–Haziran saha ekibi", "var(--heat)"]]
+    };
+    var tabs = document.querySelectorAll(".tabs button");
+    function show(v) {
+      tabs.forEach(function (b) { b.setAttribute("aria-selected", String(b.dataset.v === v)); });
+      $("feed").innerHTML = V[v].map(function (r) { return '<div style="--c:' + r[2] + '"><b>' + r[0] + "</b><span>" + r[1] + "</span></div>"; }).join("");
+    }
+    tabs.forEach(function (b) { b.addEventListener("click", function () { show(b.dataset.v); }); });
+    show("belediye");
+  })();
+
+  /* canlı simülasyon (WebGL olmasa da çalışır) */
+  function simulate(t) {
+    S.clock = reduce ? 14 : 7 + ((t / 48) % 1) * 12;
+    S.air = S.tmax - 13 * (1 - Math.exp(-Math.pow(S.clock - 15, 2) / 32));
+    var cool = gl ? gl.coolMain : 0;
+    S.cls = 24 + (S.air - 24) * 0.62 - cool * 1.7 * clamp((S.air - 26) / 12, 0, 1);
+    S.alertWin = S.tmax >= 38 && S.clock >= 12 && S.clock <= 16;
+  }
+  var lastHud = 0;
+  function hud(now) {
+    if (now - lastHud < 200) return; lastHud = now;
+    var h = Math.floor(S.clock), mi = Math.floor((S.clock - h) * 60 / 10) * 10;
+    $("hClock").textContent = (h < 10 ? "0" : "") + h + ":" + (mi < 10 ? "0" : "") + mi;
+    $("hAir").textContent = fmt(S.air) + " °C";
+    $("hClass").textContent = fmt(S.cls) + " °C";
+    $("hClass").className = S.cls >= 32 ? "hot" : S.cls >= 30 ? "warn" : "ok";
+    var st = S.alertWin ? ["UYARI · 12–16 ara", "hot"] : S.air >= 33 ? ["Sıcak · izleniyor", "warn"] : ["Normal", "ok"];
+    $("hStat").textContent = st[0]; $("hStat").className = st[1];
+    $("hDot").className = st[1];
+  }
+
+  /* ================= 3D sahne ================= */
+  var gl = null;
+  if (window.THREE) { try { gl = build(); } catch (err) { console.error(err); gl = null; } }
+  if (!gl) document.documentElement.classList.add("nogl");
+
+  var t0 = performance.now();
+  function loop(now) {
+    var t = (now - t0) / 1000;
+    simulate(t);
+    hud(now);
+    if (gl) gl.frame(now, t);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  function build() {
+    var canvas = $("gl");
+    var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(38, 1, 0.5, 1200);
+
+    /* gürültü ve rastgele */
+    function hash(x, z) { var s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); }
+    function vnoise(x, z) { var xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi, u = xf * xf * (3 - 2 * xf), v = zf * zf * (3 - 2 * zf);
+      var a = hash(xi, zi), b = hash(xi + 1, zi), c = hash(xi, zi + 1), d = hash(xi + 1, zi + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
+    function fbm(x, z) { var s = 0, a = 0.5, f = 1; for (var i = 0; i < 4; i++) { s += a * vnoise(x * f, z * f); f *= 2; a *= 0.5; } return s / 0.9375; }
+    var seed = 2027; function rnd() { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
+    var rr = function (a, b) { return a + rnd() * (b - a); };
+
+    /* malzemeler */
+    var mats = {};
+    function M(c, o) { var k = c + JSON.stringify(o || {}); if (!mats[k]) { var p = { color: c, roughness: 0.9, metalness: 0, flatShading: true }; for (var q in o) p[q] = o[q]; mats[k] = new THREE.MeshStandardMaterial(p); } return mats[k]; }
+    function mesh(geo, mat, cast) { var m = new THREE.Mesh(geo, typeof mat === "string" ? M(mat) : mat); m.castShadow = cast !== false; m.receiveShadow = true; return m; }
+    function boxAt(par, w, h, d, c, x, y, z) { var m = mesh(new THREE.BoxGeometry(w, h, d), c); m.position.set(x, y + h / 2, z); par.add(m); return m; }
+
+    /* gökyüzü, güneş, ışık */
+    var HOR = new THREE.Color("#f2dcc0"), HOR_HOT = new THREE.Color("#f5bf8e"), TOP = new THREE.Color("#8ea2b4"), TOP_HOT = new THREE.Color("#b49c88");
+    var skyU = { top: { value: TOP.clone() }, hor: { value: HOR.clone() } };
+    var sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), new THREE.ShaderMaterial({
+      uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
+      vertexShader: "varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+      fragmentShader: "uniform vec3 top; uniform vec3 hor; varying vec3 vP; void main(){ float h = max(vP.y, 0.0); gl_FragColor = vec4(mix(hor, top, pow(h, 0.5)), 1.0); }"
+    }));
+    sky.renderOrder = -1; scene.add(sky);
+    scene.fog = new THREE.Fog(HOR.clone(), 140, 520);
+
+    var sunTex = (function () { var c = document.createElement("canvas"); c.width = c.height = 128; var x = c.getContext("2d"); var g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0, "rgba(255,255,245,1)"); g.addColorStop(0.18, "rgba(255,250,230,1)"); g.addColorStop(0.3, "rgba(255,226,170,0.35)"); g.addColorStop(1, "rgba(255,200,140,0)"); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+    var sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTex, fog: false, depthWrite: false, transparent: true }));
+    sunSprite.scale.set(80, 80, 1); scene.add(sunSprite);
+
+    var hemi = new THREE.HemisphereLight(0xfff1dd, 0x8a6a4a, 0.62); scene.add(hemi);
+    var sun = new THREE.DirectionalLight(0xfff0d8, 1.0);
+    sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+    var sc = sun.shadow.camera; sc.left = -75; sc.right = 75; sc.top = 75; sc.bottom = -75; sc.near = 1; sc.far = 400;
+    sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
+    sun.target.position.set(-8, 0, 4); scene.add(sun); scene.add(sun.target);
+
+    /* arazi + Karacadağ */
+    (function () {
+      var g = new THREE.PlaneGeometry(1400, 1400, 140, 140); g.rotateX(-Math.PI / 2);
+      var p = g.attributes.position, col = new Float32Array(p.count * 3), cNear = new THREE.Color("#cdb294"), cFar = new THREE.Color("#c99e72"), cHill = new THREE.Color("#a98261"), cc = new THREE.Color();
+      for (var i = 0; i < p.count; i++) {
+        var x = p.getX(i), z = p.getZ(i), r = Math.hypot(x + 8, z - 4);
+        var edge = clamp((r - 90) / 120, 0, 1); edge = edge * edge * (3 - 2 * edge);
+        var kd = 60 * g2(x, z, -230, -60, 70) + 18 * g2(x, z, -160, -140, 50);
+        var h = edge * (fbm(x * 0.01 + 5, z * 0.01) * 34 - 6) + kd;
+        p.setY(i, Math.max(0, h));
+        cc.copy(cNear).lerp(cFar, clamp((r - 50) / 80, 0, 1)).lerp(cHill, clamp(h / 40, 0, 1));
+        col[i * 3] = cc.r; col[i * 3 + 1] = cc.g; col[i * 3 + 2] = cc.b;
+      }
+      g.setAttribute("color", new THREE.BufferAttribute(col, 3)); g.computeVertexNormals();
+      var t = mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 }), false); scene.add(t);
+    })();
+
+    /* Dicle */
+    function riverX(z) { return 15 + 3 * Math.sin(z * 0.05 + 0.4) + 1.2 * Math.sin(z * 0.16); }
+    (function () {
+      var pos = [], idx = [], n = 0;
+      for (var z = -260; z <= 260; z += 1) { var cx = riverX(z), w = 1.5 + 0.3 * Math.sin(z * 0.11); pos.push(cx - w, 0.08, z, cx + w, 0.08, z); if (n) { var a = (n - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); } n++; }
+      var g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+      var r = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0x3d8592, roughness: 0.25, metalness: 0.1, side: THREE.DoubleSide })); r.receiveShadow = true; scene.add(r);
+      var bank = []; for (var z2 = -260; z2 <= 260; z2 += 1) { var c2 = riverX(z2), w2 = 2.6; bank.push(c2 - w2, 0.04, z2, c2 + w2, 0.04, z2); }
+      var g2b = new THREE.BufferGeometry(); g2b.setAttribute("position", new THREE.Float32BufferAttribute(bank, 3)); g2b.setIndex(idx); g2b.computeVertexNormals();
+      var b = new THREE.Mesh(g2b, new THREE.MeshStandardMaterial({ color: 0xa79a7c, roughness: 1, side: THREE.DoubleSide })); b.receiveShadow = true; scene.add(b);
+    })();
+
+    /* yollar */
+    function road(x1, z1, x2, z2, w) { var dx = x2 - x1, dz = z2 - z1, L = Math.hypot(dx, dz); var m = new THREE.Mesh(new THREE.PlaneGeometry(L, w), M("#8c8079", { flatShading: false })); m.rotation.x = -Math.PI / 2; m.rotation.z = -Math.atan2(dz, dx); m.position.set((x1 + x2) / 2, 0.06, (z1 + z2) / 2); m.receiveShadow = true; scene.add(m); }
+    road(-90, -1, -8, -1, 2.2); road(-28, -70, -28, 70, 2.2); road(-8, -1, -8, 50, 1.6); road(-70, 34, 12, 34, 1.6);
+    function onRoad(x, z) { return (Math.abs(z + 1) < 2.2 && x < -7) || Math.abs(x + 28) < 2.2 || (Math.abs(x + 8) < 1.9 && z > -1 && z < 50) || (Math.abs(z - 34) < 1.9 && x < 12); }
+
+    /* ilçeler */
+    var DIST = [
+      { n: "Sur", x: 0, z: 0, w: 1, s: 6.5, vul: 0.32 },
+      { n: "Bağlar", x: -17, z: 13, w: 0.95, s: 9.5, vul: 0.38 },
+      { n: "Kayapınar", x: -33, z: -9, w: 0.82, s: 11, vul: -0.18 },
+      { n: "Yenişehir", x: -6, z: -23, w: 0.8, s: 8.5, vul: 0.04 }
+    ];
+    function urban(x, z) { var u = 0, dom = null, mb = 0; DIST.forEach(function (d) { var m = d.w * g2(x, z, d.x, d.z, d.s); if (m > u) { u = m; dom = d; mb = m / d.w; } }); if (x > riverX(z) - 1) u *= 0.2; return { u: u, d: dom, mb: mb }; }
+    var hevsel = function (x, z) { return g2(x, z, 11, 6, 3.6); };
+    var ell = function (x, z) { return (x / 7) * (x / 7) + (z / 8) * (z / 8); };
+
+    /* vinyet konumları */
+    var P = {
+      school: { x: -13, z: 8 }, market: { x: -22, z: 18 }, site: { x: -7, z: 22 }, kurye: { x: -2, z: 12 }, belediye: { x: -1, z: -14 },
+      duA: { x: -22, z: 23.2 }, duB: { x: -1.6, z: 25.5 }, duC: { x: -3, z: 3 }
+    };
+    var others = [{ x: -25, z: 4, fix: 1 }, { x: -4, z: -25, fix: 1 }, { x: -34, z: -16 }, { x: -15, z: 29 }, { x: -41, z: 7 }];
+    var EX = [{ x: -13, z: 9.5, r: 6 }, { x: -13, z: 19, r: 4.5 }, { x: -6, z: 3.5, r: 3.5 }, { x: -22, z: 19.5, r: 6.2 }, { x: -6, z: 22.5, r: 5.4 }, { x: -2, z: 12, r: 3.2 }, { x: -1, z: -14, r: 4.4 }, { x: -3, z: 3, r: 2.6 }]
+      .concat(others.map(function (o) { return { x: o.x, z: o.z + 1, r: 4.2 }; }));
+    var excluded = function (x, z) { for (var i = 0; i < EX.length; i++) if (Math.hypot(x - EX[i].x, z - EX[i].z) < EX[i].r) return true; return false; };
+
+    /* binalar (instanced) */
+    var B = [];
+    var PAL = { "Sur": ["#4b4752", "#58525e", "#655e6b", "#7c6e62", "#4f4a54"], "Bağlar": ["#d9c6a5", "#cdb08a", "#e2d3b8", "#c2a07c", "#d7bd98"], "Kayapınar": ["#e6e1d6", "#d4d9d8", "#cfc6b8", "#bfc8cc", "#ebe5da"], "Yenişehir": ["#dccbb0", "#d1bfa0", "#e5d8c2", "#cbb596"] };
+    for (var gx = -6.6; gx <= 6.6; gx += 1.25) for (var gz = -7.6; gz <= 7.6; gz += 1.25) {
+      var jx = gx + rr(-0.2, 0.2), jz = gz + rr(-0.2, 0.2);
+      if (ell(jx, jz) > 0.8 || excluded(jx, jz) || rnd() > 0.84) continue;
+      B.push({ x: jx, z: jz, w: rr(0.85, 1.1), d: rr(0.85, 1.1), h: rr(0.7, 1.9), c: PAL.Sur[Math.floor(rnd() * 5)] });
+    }
+    for (gx = -66; gx <= 30; gx += 3.1) for (gz = -56; gz <= 56; gz += 3.1) {
+      var x = gx + rr(-0.5, 0.5), z = gz + rr(-0.5, 0.5);
+      if (ell(x, z) < 1.4 || Math.abs(x - riverX(z)) < 3.4 || hevsel(x, z) > 0.25 || excluded(x, z) || onRoad(x, z)) continue;
+      var U = urban(x, z);
+      if (U.u < 0.1) { if (rnd() < 0.03) B.push({ x: x, z: z, w: rr(1.2, 1.8), d: rr(1.2, 1.8), h: rr(0.9, 1.6), c: "#d4bf9f" }); continue; }
+      if (rnd() > clamp(U.u * 1.3 - 0.05, 0, 0.9)) continue;
+      var dn = U.d.n, hm = dn === "Kayapınar" ? [4, 11] : dn === "Bağlar" ? [2.5, 6.5] : dn === "Sur" ? [1.5, 3.5] : [3, 7];
+      var hh = rr(hm[0], hm[1]) * (0.5 + 0.5 * U.mb);
+      var pal = PAL[dn === "Sur" ? "Yenişehir" : dn];
+      B.push({ x: x, z: z, w: rr(1.6, 2.4), d: rr(1.6, 2.4), h: Math.max(1, hh), c: pal[Math.floor(rnd() * pal.length)] });
+    }
+    (function () {
+      var g = new THREE.BoxGeometry(1, 1, 1); g.translate(0, 0.5, 0);
+      var im = new THREE.InstancedMesh(g, new THREE.MeshStandardMaterial({ roughness: 0.92, flatShading: true }), B.length);
+      var o = new THREE.Object3D(), c = new THREE.Color();
+      B.forEach(function (b, i) { o.position.set(b.x, 0, b.z); o.rotation.y = rr(-0.08, 0.08); o.scale.set(b.w, b.h, b.d); o.updateMatrix(); im.setMatrixAt(i, o.matrix); im.setColorAt(i, c.set(b.c)); });
+      im.castShadow = true; im.receiveShadow = true; scene.add(im);
+    })();
+
+    /* ağaçlar: Hevsel'de bol, Bağlar'da yok denecek kadar az */
+    (function () {
+      var T = [];
+      for (var x = 2; x <= 18; x += 1.15) for (var z = -6; z <= 18; z += 1.15) {
+        var jx = x + rr(-0.4, 0.4), jz = z + rr(-0.4, 0.4);
+        if (hevsel(jx, jz) > 0.22 && Math.abs(jx - riverX(jz)) > 2.4 && ell(jx, jz) > 1.25 && rnd() < 0.78) T.push([jx, jz, rr(0.8, 1.3)]);
+      }
+      for (var k = 0; k < 900; k++) {
+        var x2 = rr(-66, 28), z2 = rr(-56, 56), U = urban(x2, z2);
+        if (!U.d || ell(x2, z2) < 1.4 || Math.abs(x2 - riverX(z2)) < 2.6 || excluded(x2, z2) || onRoad(x2, z2)) continue;
+        var pr = U.d.n === "Kayapınar" ? 0.35 : U.d.n === "Yenişehir" ? 0.12 : U.d.n === "Bağlar" ? 0.03 : 0.05;
+        if (U.u < 0.1) pr = 0.04;
+        if (rnd() < pr) T.push([x2, z2, rr(0.7, 1.1)]);
+      }
+      for (var k2 = 0; k2 < 120; k2++) { var a = rr(0, 6.28), rd = rr(1.5, 3); var zz = rr(-120, 120); T.push([riverX(zz) + (rnd() < 0.5 ? -1 : 1) * rd, zz, rr(0.8, 1.2)]); }
+      var g = new THREE.ConeGeometry(0.75, 2.2, 6); g.translate(0, 1.5, 0);
+      var trunk = new THREE.CylinderGeometry(0.12, 0.15, 0.6, 5); trunk.translate(0, 0.3, 0);
+      var im = new THREE.InstancedMesh(g, new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }), T.length);
+      var it = new THREE.InstancedMesh(trunk, M("#6b4f3a"), T.length);
+      var o = new THREE.Object3D(), c = new THREE.Color();
+      T.forEach(function (t, i) { o.position.set(t[0], 0, t[1]); o.scale.setScalar(t[2]); o.rotation.y = rr(0, 6); o.updateMatrix(); im.setMatrixAt(i, o.matrix); it.setMatrixAt(i, o.matrix); im.setColorAt(i, c.setHSL(0.24 + rr(-0.03, 0.03), 0.35, 0.33 + rr(-0.05, 0.05))); });
+      im.castShadow = true; it.castShadow = true; scene.add(im); scene.add(it);
+    })();
+
+    /* Diyarbakır surları: 82 burç */
+    (function () {
+      var tg = new THREE.CylinderGeometry(0.42, 0.5, 2.1, 8); tg.translate(0, 1.05, 0);
+      var pts = [];
+      for (var k = 0; k < 82; k++) { var a = k / 82 * Math.PI * 2, rx = 7 + 0.35 * Math.sin(a * 3), rz = 8 + 0.3 * Math.cos(a * 2); pts.push(new THREE.Vector3(Math.cos(a) * rx, 0, Math.sin(a) * rz)); }
+      var im = new THREE.InstancedMesh(tg, M("#3b3740"), 82), o = new THREE.Object3D();
+      pts.forEach(function (p, i) { o.position.copy(p); o.updateMatrix(); im.setMatrixAt(i, o.matrix); });
+      im.castShadow = true; im.receiveShadow = true; scene.add(im);
+      var wg = new THREE.BoxGeometry(1, 1.5, 0.45); wg.translate(0, 0.75, 0);
+      var wm = new THREE.InstancedMesh(wg, M("#45404b"), 82);
+      pts.forEach(function (p, i) { var q = pts[(i + 1) % 82]; o.position.set((p.x + q.x) / 2, 0, (p.z + q.z) / 2); o.rotation.set(0, -Math.atan2(q.z - p.z, q.x - p.x), 0); o.scale.set(p.distanceTo(q), 1, 1); o.updateMatrix(); wm.setMatrixAt(i, o.matrix); });
+      wm.castShadow = true; wm.receiveShadow = true; scene.add(wm);
+    })();
+
+    /* On Gözlü Köprü */
+    (function () {
+      var z = 40, cx = riverX(z), g = new THREE.Group();
+      boxAt(g, 9, 0.35, 1.3, "#4a4550", 0, 1.3, 0);
+      for (var i = 0; i <= 10; i++) boxAt(g, 0.32, 1.3, 1.3, "#3e3a44", -4.4 + i * 0.88, 0, 0);
+      g.position.set(cx, 0, z); scene.add(g);
+    })();
+
+    /* yardımcı: figür */
+    var bodyG = new THREE.CylinderGeometry(0.16, 0.2, 0.72, 7), headG = new THREE.SphereGeometry(0.15, 8, 6);
+    function figure(color, s) { var g = new THREE.Group(); var b = mesh(bodyG, color); b.position.y = 0.36; var h = mesh(headG, "#c39572"); h.position.y = 0.88; g.add(b); g.add(h); g.scale.setScalar(s || 1); scene.add(g); return g; }
+
+    /* okul */
+    function makeSchool(x, z, s, main) {
+      var g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(s); scene.add(g);
+      boxAt(g, 7, 2.6, 3, "#e6d9c0", 0, 0, -1.5);
+      boxAt(g, 2.4, 2.6, 2.4, "#e6d9c0", -2.3, 0, 0.8);
+      for (var f = 0; f < 2; f++) boxAt(g, 6.6, 0.42, 0.05, "#5b6872", 0, 0.55 + f * 1.15, 0.01);
+      var roofMat = new THREE.MeshStandardMaterial({ color: 0x5f5866, roughness: 0.9, flatShading: true });
+      var roof = mesh(new THREE.BoxGeometry(7.3, 0.16, 3.3), roofMat); roof.position.set(0, 2.68, -1.5); g.add(roof);
+      var roof2 = mesh(new THREE.BoxGeometry(2.7, 0.16, 2.7), roofMat); roof2.position.set(-2.3, 2.68, 0.8); g.add(roof2);
+      var yard = new THREE.Mesh(new THREE.PlaneGeometry(9, 5.2), M("#b9ad9d", { flatShading: false })); yard.rotation.x = -Math.PI / 2; yard.position.set(0.6, 0.07, 2.4); yard.receiveShadow = true; g.add(yard);
+      var pole = mesh(new THREE.CylinderGeometry(0.04, 0.04, 3.6, 5), "#ddd"); pole.position.set(4.2, 1.8, 4.4); g.add(pole);
+      var flag = mesh(new THREE.BoxGeometry(0.9, 0.55, 0.03), "#d8342c"); flag.position.set(4.66, 3.25, 4.4); g.add(flag);
+      var res = { g: g, roofMat: roofMat, x: x, z: z, s: s };
+      /* sınıf sensörü */
+      var sens = mesh(new THREE.BoxGeometry(0.4, 0.3, 0.14), "#f4f4f0"); sens.position.set(1.4, 1.6, 0.08); g.add(sens);
+      var led = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: 0x4fd1c5 })); led.position.set(1.55, 1.68, 0.17); g.add(led);
+      var ant = mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 4), "#333"); ant.position.set(1.28, 1.95, 0.08); g.add(ant);
+      res.led = led; res.sensor = new THREE.Vector3(x + 1.4 * s, 1.9 * s, z + 0.1 * s);
+      if (main) {
+        var sail = new THREE.Group();
+        var cloth = mesh(new THREE.BoxGeometry(4.2, 0.06, 2.8), new THREE.MeshStandardMaterial({ color: 0xe9f6f3, roughness: 0.8, flatShading: true })); cloth.position.y = 2.2; cloth.rotation.z = 0.06; sail.add(cloth);
+        [[-2, -1.3], [2, -1.3], [-2, 1.3], [2, 1.3]].forEach(function (p) { var po = mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.3, 5), "#9aa"); po.position.set(p[0], 1.15, p[1]); sail.add(po); });
+        sail.position.set(0.8, 0, 2.6); sail.scale.set(1, 0.001, 1); g.add(sail); res.sail = sail;
+        res.kids = [];
+        for (var k = 0; k < 9; k++) {
+          var kid = figure(["#3a6ea5", "#d8a23a", "#c4534a", "#5a8f5a", "#7d5aa6"][k % 5], 0.72);
+          var sun = new THREE.Vector3(x + rr(-3.5, 4) * s, 0.07, z + rr(1.2, 4.4) * s);
+          var shade = new THREE.Vector3(x + (0.8 + rr(-1.7, 1.7)) * s, 0.07, z + (2.6 + rr(-1.1, 1.1)) * s);
+          kid.position.copy(sun); res.kids.push({ m: kid, a: sun, b: shade, ph: rr(0, 6) });
+        }
+      }
+      return res;
+    }
+    var school = makeSchool(P.school.x, P.school.z, 1, true);
+    var schools = [school].concat(others.map(function (o) { var r = makeSchool(o.x, o.z, 0.72, false); r.fix = !!o.fix; return r; }));
+    school.fix = true;
+
+    /* pazar yeri */
+    (function () {
+      var g = new THREE.Group(); g.position.set(P.market.x, 0, P.market.z); scene.add(g);
+      var ground = new THREE.Mesh(new THREE.PlaneGeometry(12, 9), M("#bfae94", { flatShading: false })); ground.rotation.x = -Math.PI / 2; ground.position.y = 0.06; ground.receiveShadow = true; g.add(ground);
+      var cols = ["#c94f3d", "#e8dcc0", "#d98b2b", "#6f8fae", "#e8dcc0"];
+      for (var r = 0; r < 3; r++) for (var c = 0; c < 5; c++) {
+        var x = -4.4 + c * 2.2, z = -3 + r * 2.6;
+        boxAt(g, 1.6, 0.8, 0.9, "#8b6b4a", x, 0, z);
+        boxAt(g, 1.3, 0.25, 0.7, ["#d9a43c", "#7aa04a", "#c8553d"][(r + c) % 3], x, 0.8, z);
+        var cn = mesh(new THREE.BoxGeometry(1.9, 0.06, 1.3), cols[(r * 5 + c) % 5]); cn.position.set(x, 1.9, z - 0.15); cn.rotation.x = 0.12; g.add(cn);
+        if (rnd() < 0.7) { var f = figure(["#7b5e57", "#4c5d73", "#8a4f3f"][c % 3]); f.position.set(P.market.x + x + 0.2, 0.06, P.market.z + z + 0.75); }
+      }
+    })();
+
+    /* şantiye */
+    var crane;
+    var workers = [];
+    (function () {
+      var g = new THREE.Group(); g.position.set(P.site.x, 0, P.site.z); scene.add(g);
+      var ground = new THREE.Mesh(new THREE.PlaneGeometry(9, 8), M("#b59a78", { flatShading: false })); ground.rotation.x = -Math.PI / 2; ground.position.y = 0.06; ground.receiveShadow = true; g.add(ground);
+      for (var i = 0; i < 3; i++) for (var j = 0; j < 3; j++) boxAt(g, 0.28, 5.2, 0.28, "#9c968f", -2 + i * 2, 0, -2 + j * 2);
+      for (var l = 1; l <= 3; l++) boxAt(g, 4.6, 0.22, 4.6, "#aaa39b", 0, l * 1.7 - 0.2, 0);
+      boxAt(g, 1.2, 0.6, 0.8, "#c97b2b", 3, 0, 2.6); boxAt(g, 2, 0.4, 0.6, "#8b6b4a", -3.2, 0, 2.8);
+      crane = new THREE.Group(); crane.position.set(P.site.x + 3.6, 0, P.site.z - 2.6); scene.add(crane);
+      boxAt(crane, 0.45, 12, 0.45, "#e2a12a", 0, 0, 0);
+      var jib = new THREE.Group(); jib.position.y = 12; crane.add(jib); crane.jib = jib;
+      boxAt(jib, 11, 0.35, 0.35, "#e2a12a", 3, 0, 0); boxAt(jib, 1.2, 0.8, 0.8, "#666", -2.4, -0.3, 0);
+      var line = mesh(new THREE.CylinderGeometry(0.02, 0.02, 6, 4), "#333"); line.position.set(6.5, -3, 0); jib.add(line);
+      boxAt(jib, 0.5, 0.4, 0.5, "#555", 6.5, -6.4, 0);
+      for (var w = 0; w < 5; w++) {
+        var f = figure("#f08a24");
+        var a = new THREE.Vector3(P.site.x + rr(-3, 3), 0.06, P.site.z + rr(-1, 3.4));
+        var b = new THREE.Vector3(P.duB.x + Math.cos(w * 1.3) * 1.2, 0.06, P.duB.z + Math.sin(w * 1.3) * 1.1);
+        f.position.copy(a); workers.push({ m: f, a: a, b: b });
+      }
+    })();
+
+    /* kurye noktası */
+    (function () {
+      for (var i = 0; i < 3; i++) {
+        var g = new THREE.Group(); g.position.set(P.kurye.x - 1.3 + i * 1.3, 0, P.kurye.z + (i % 2) * 0.4); g.rotation.y = 0.3 * (i - 1); scene.add(g);
+        boxAt(g, 0.35, 0.4, 1.3, "#2f3a46", 0, 0.3, 0); boxAt(g, 0.55, 0.45, 0.5, ["#d8342c", "#f2b134", "#3d9a5b"][i], 0, 0.75, -0.45);
+        [-0.5, 0.5].forEach(function (zz) { var w = mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.14, 10), "#222"); w.rotation.z = Math.PI / 2; w.position.set(0, 0.3, zz); g.add(w); });
+        var f = figure(["#d8342c", "#f2b134", "#3d9a5b"][i]); f.position.set(P.kurye.x - 1.3 + i * 1.3 + 0.55, 0.06, P.kurye.z + 0.4);
+      }
+    })();
+
+    /* belediye + veri alıcı */
+    var dish;
+    (function () {
+      var g = new THREE.Group(); g.position.set(P.belediye.x, 0, P.belediye.z); scene.add(g);
+      boxAt(g, 6.5, 4, 4.4, "#ece6dc", 0, 0, 0);
+      boxAt(g, 7, 0.3, 4.8, "#c9c0b3", 0, 4, 0);
+      for (var i = 0; i < 6; i++) boxAt(g, 0.3, 3.4, 0.3, "#f6f1ea", -2.6 + i * 1.04, 0, 2.45);
+      boxAt(g, 7, 0.4, 1.2, "#d6cdc0", 0, 0, 2.9);
+      dish = new THREE.Group(); dish.position.set(P.belediye.x + 1.8, 4.3, P.belediye.z - 0.6); scene.add(dish);
+      var mast = mesh(new THREE.CylinderGeometry(0.08, 0.1, 1.2, 6), "#888"); mast.position.y = 0.6; dish.add(mast);
+      var bowl = mesh(new THREE.SphereGeometry(0.9, 12, 6, 0, Math.PI * 2, 0, Math.PI / 3.2), new THREE.MeshStandardMaterial({ color: 0xf4f4f0, side: THREE.DoubleSide, flatShading: true }));
+      bowl.rotation.x = Math.PI * 0.75; bowl.position.y = 1.4; dish.add(bowl);
+    })();
+
+    /* Serin Durak (3 nokta: 2 pazar, 1 şantiye) */
+    var duraks = [P.duA, P.duB, P.duC].map(function (p, i) {
+      var g = new THREE.Group(); g.position.set(p.x, 0, p.z); scene.add(g);
+      var can = mesh(new THREE.CylinderGeometry(i === 2 ? 1.5 : 2.1, i === 2 ? 1.5 : 2.1, 0.12, 6), new THREE.MeshStandardMaterial({ color: 0x4fd1c5, roughness: 0.6, flatShading: true }));
+      can.position.y = 2.3; g.add(can);
+      for (var k = 0; k < 6; k++) { var a = k / 6 * Math.PI * 2, r = i === 2 ? 1.3 : 1.85; var po = mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.3, 5), "#e9f6f3"); po.position.set(Math.cos(a) * r, 1.15, Math.sin(a) * r); g.add(po); }
+      var tank = mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.9, 10), "#e8f2f6"); tank.position.set(0.5, 0.45, 0); g.add(tank);
+      var cap = mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.12, 10), "#2f7fbf"); cap.position.set(0.5, 0.95, 0); g.add(cap);
+      boxAt(g, 1.4, 0.4, 0.4, "#8b6b4a", -0.6, 0, 0.6);
+      g.scale.set(0.001, 0.001, 0.001); g.userData.v = 0;
+      return g;
+    });
+
+    /* gönüllüler */
+    var vols = [{ x: -19.5, z: 22.8, t: "Kayıt · gölgesiz pazar · foto ✓" }, { x: -0.6, z: 10.6, t: "Kayıt · kurye noktası · gölge yok" }, { x: -10.2, z: 25.4, t: "Kayıt · şantiye · su yok" }, { x: -9.4, z: 12.2, t: "Sensör · sınıf 34,0°C" }, { x: -24.5, z: 8.6, t: "Kayıt · durak · gölgesiz" }]
+      .map(function (v) { var f = figure("#2fb5a8"); f.position.set(v.x, 0.06, v.z); f.visible = false; v.m = f; return v; });
+
+    /* uydu ve tarama */
+    var sat = new THREE.Group(); scene.add(sat);
+    boxAt(sat, 1.2, 1.2, 1.8, "#d9d6cf", 0, -0.6, 0);
+    [-1, 1].forEach(function (s) { var p = mesh(new THREE.BoxGeometry(3.2, 0.06, 1.3), new THREE.MeshStandardMaterial({ color: 0x2c4f7c, metalness: 0.4, roughness: 0.4 })); p.position.set(s * 2.3, 0, 0); sat.add(p); });
+    var scanMat = new THREE.MeshBasicMaterial({ color: 0xff9a3d, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    var strip = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 120), scanMat); strip.rotation.x = -Math.PI / 2; strip.position.y = 0.5; scene.add(strip);
+    var beam = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 1.1, 1, 4, 1, true), new THREE.MeshBasicMaterial({ color: 0xffb36b, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    beam.scale.set(1, 1, 60); scene.add(beam);
+
+    /* risk hücreleri (altıgen, yarı saydam) */
+    var HEX = 1.7, cells = [];
+    for (var q = -32; q <= 32; q++) for (var r = -32; r <= 32; r++) {
+      var hx = HEX * Math.sqrt(3) * (q + r / 2) - 10, hz = HEX * 1.5 * r + 3;
+      if (Math.hypot(hx + 10, hz - 3) > 50) continue;
+      var rd = Math.abs(hx - riverX(hz)); if (rd < 2.2) continue;
+      var U = urban(hx, hz), hv = hevsel(hx, hz), nr = Math.exp(-(rd * rd) / (2 * 3 * 3));
+      var H = clamp(0.42 + 0.38 * U.u + 0.22 * (1 - U.u) * fbm(hx * 0.06 + 3, hz * 0.06) - 0.75 * hv - 0.4 * nr + 0.2 * (fbm(hx * 0.12, hz * 0.12) - 0.5) - (U.d && U.d.n === "Kayapınar" ? 0.1 : 0), 0.04, 1);
+      var E = clamp(0.03 + 0.97 * U.u + 0.12 * (fbm(hx * 0.2 + 9, hz * 0.2) - 0.5), 0.02, 1);
+      var Vv = clamp(0.45 + (U.d ? U.d.vul * U.mb : 0) + 0.3 * (fbm(hx * 0.15 - 4, hz * 0.15 + 7) - 0.5) - 0.3 * hv, 0.08, 1);
+      var nm = U.u < 0.14 ? (hx > riverX(hz) ? "Dicle'nin doğu yakası" : "Kırsal alan") : U.d.n;
+      if (hv > 0.4) nm = "Hevsel Bahçeleri";
+      cells.push({ x: hx, z: hz, H: H, E: E, V: Vv, raw: Math.cbrt(H * E * Vv), name: nm, h: 0, rv: 0 });
+    }
+    var maxRaw = 0; cells.forEach(function (c) { maxRaw = Math.max(maxRaw, c.raw); });
+    var fixPts = schools.filter(function (s) { return s.fix; }).map(function (s) { return s; }).concat([P.duA, P.duB, P.duC]);
+    cells.forEach(function (c) {
+      c.r01 = c.raw / maxRaw; c.score = 1 + Math.min(4, Math.floor(c.r01 * 5));
+      var w = 0; fixPts.forEach(function (f) { w = Math.max(w, g2(c.x, c.z, f.x, f.z, 1.6)); }); c.fixW = w;
+    });
+    var hexG = new THREE.CylinderGeometry(HEX * 0.94, HEX * 0.94, 1, 6); hexG.translate(0, 0.5, 0);
+    var hexMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false });
+    var hexes = new THREE.InstancedMesh(hexG, hexMat, cells.length);
+    hexes.frustumCulled = false; hexes.renderOrder = 2; hexes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    var INF = ["#000004", "#160b39", "#420a68", "#6a176e", "#932667", "#bc3754", "#dd513a", "#f37819", "#fca50a", "#f6d746", "#fcffa4"].map(function (h) { return new THREE.Color(h); });
+    function inferno(t, out) { t = clamp(t, 0, 1) * 10; var i = Math.min(9, Math.floor(t)); return out.copy(INF[i]).lerp(INF[i + 1], t - i); }
+    var COOL = new THREE.Color("#4fd1c5");
+    for (var ci = 0; ci < cells.length; ci++) hexes.setColorAt(ci, COOL);
+    scene.add(hexes);
+
+    /* sıcak hava parçacıkları */
+    var hot = cells.filter(function (c) { return c.r01 > 0.5; });
+    var PN = 900, pPos = new Float32Array(PN * 3), pD = [];
+    for (var pi = 0; pi < PN; pi++) { var hc = hot[Math.floor(rnd() * hot.length)]; pD.push({ x: hc.x + rr(-1.5, 1.5), z: hc.z + rr(-1.5, 1.5), y: rr(0, 14), sp: rr(0.6, 1.6) }); }
+    var pGeo = new THREE.BufferGeometry(); pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+    var pMat = new THREE.PointsMaterial({ color: 0xffa25a, size: 0.22, transparent: true, opacity: 0.4, depthWrite: false });
+    var parts = new THREE.Points(pGeo, pMat); parts.frustumCulled = false; scene.add(parts);
+
+    /* halkalar */
+    var ringG = new THREE.RingGeometry(0.9, 1, 56); ringG.rotateX(-Math.PI / 2);
+    var rings = []; for (var k = 0; k < 24; k++) { var rm = new THREE.Mesh(ringG, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })); rm.visible = false; rm.renderOrder = 3; scene.add(rm); rings.push({ m: rm, life: 0, max: 1, size: 1 }); }
+    function ring(x, y, z, color, size, dur) { for (var k = 0; k < rings.length; k++) if (rings[k].life <= 0) { var R = rings[k]; R.m.position.set(x, y, z); R.m.material.color.set(color); R.size = size; R.max = R.life = dur; R.m.visible = true; return; } }
+
+    /* veri paketleri */
+    var pkG = new THREE.SphereGeometry(0.28, 10, 8), packets = [];
+    for (var k3 = 0; k3 < 28; k3++) { var pm = new THREE.Mesh(pkG, new THREE.MeshBasicMaterial({ color: 0x7ff0e4 })); pm.visible = false; scene.add(pm); packets.push({ m: pm, t: 1, a: new THREE.Vector3(), b: new THREE.Vector3(), c: new THREE.Vector3() }); }
+    var dishPos = new THREE.Vector3(P.belediye.x + 1.8, 5.8, P.belediye.z - 0.6);
+    function sendPacket(from) { for (var k = 0; k < packets.length; k++) if (packets[k].t >= 1) { var p = packets[k]; p.a.copy(from); p.b.copy(dishPos); p.c.copy(from).lerp(dishPos, 0.5); p.c.y += 10 + from.distanceTo(dishPos) * 0.25; p.t = 0; p.m.visible = true; return; } }
+
+    /* etiketler */
+    var tagsEl = $("tags");
+    var ALL = ["giris", "sorun", "gorunmez", "simdi", "bul", "risk", "yonlendir", "eslestir", "olc", "senaryo", "veri", "panel", "ozgun", "plan", "etki", "ortak", "juri"];
+    function tag(text, pos, on, cls) { var el = document.createElement("div"); el.className = "tag " + (cls || ""); tagsEl.appendChild(el); return { el: el, text: text, pos: pos, on: on, cls: cls || "", v: new THREE.Vector3(), last: "" }; }
+    var schoolTop = function () { return new THREE.Vector3(P.school.x, 4.4, P.school.z - 1.5); };
+    var TAGS = [
+      tag("Sur · 82 burç", new THREE.Vector3(0, 3.4, -8.6), ["giris", "sorun", "ozgun", "plan"], "place"),
+      tag("Dicle", new THREE.Vector3(riverX(-34), 1.2, -34), ["giris", "ozgun", "plan"], "water"),
+      tag("Hevsel Bahçeleri", new THREE.Vector3(11, 3.4, 6), ["giris", "ozgun", "sorun"], "water"),
+      tag("On Gözlü Köprü", new THREE.Vector3(riverX(40), 3, 40), ["giris", "ozgun"], "place"),
+      tag("Karacadağ · bazaltın kaynağı", new THREE.Vector3(-230, 64, -60), ["giris", "plan", "etki"], "place"),
+      tag("Bağlar", new THREE.Vector3(-17, 9, 13), ["sorun", "risk", "ozgun", "plan"], "place"),
+      tag("Kayapınar", new THREE.Vector3(-33, 13, -9), ["sorun", "risk", "ozgun", "plan"], "place"),
+      tag("Yenişehir", new THREE.Vector3(-6, 9, -23), ["sorun", "risk", "ozgun"], "place"),
+      tag(function () { return S.ch === "gorunmez" ? "Okul-07 · bahçede gölge yok" : "Okul-07 · sınıf " + fmt(S.cls) + "°C"; }, schoolTop(), ["gorunmez", "eslestir", "olc", "veri"], function () { return S.cls >= 32 ? "hot" : "ok"; }),
+      tag(function () { return S.ch === "yonlendir" ? "Serin Durak · gölge + su" : "Pazar yeri · gölge ve su yok"; }, new THREE.Vector3(P.market.x, 3.6, P.market.z), ["gorunmez", "yonlendir"], function () { return S.ch === "yonlendir" ? "ok" : "warn"; }),
+      tag(function () { return S.ch === "yonlendir" ? "SMS · şantiye şefi · 12–16 ara" : "Şantiye · açık havada ağır iş"; }, new THREE.Vector3(P.site.x, 6.4, P.site.z), ["gorunmez", "yonlendir"], function () { return S.ch === "yonlendir" ? "hot" : "warn"; }),
+      tag("Kurye bekleme noktası · gölgesiz", new THREE.Vector3(P.kurye.x, 2.4, P.kurye.z), ["gorunmez", "yonlendir"], "warn"),
+      tag(function () { return S.ch === "veri" ? "Belediye · PostGIS + harita" : "Belediye · iklim eylem planı"; }, new THREE.Vector3(P.belediye.x, 7.4, P.belediye.z), ["simdi", "veri"], ""),
+      tag("Landsat · Sentinel-2 · yüzey sıcaklığı", null, ["bul"], ""),
+      tag(function () { return S.step >= 3 ? "Okul-07 · 32,4°C · serin çatı ✓" : S.step === 2 ? "Okul-07 · finanse edildi" : S.step === 1 ? "Okul-07 · sınıf 34°C" : "Okul-07 · izleniyor"; }, schoolTop(), ["senaryo"], function () { return S.step >= 3 ? "ok" : S.step >= 1 ? "hot" : "warn"; })
+    ];
+    var satTag = TAGS[13];
+    var pingTag = tag("", new THREE.Vector3(), ["bul"], "ok");
+    TAGS.push(pingTag);
+
+    /* kamera planları */
+    var SHOTS = {
+      giris: { look: [-10, 5, 4], pos: [44, 15, 58], orbit: 1 },
+      sorun: { look: [-12, 2, 10], pos: [-40, 15, 44] },
+      gorunmez: { look: [-11, 1, 16], pos: [10, 16, 42] },
+      simdi: { look: [-1, 3, -14], pos: [16, 10, -2] },
+      bul: { look: [-8, 0, 4], pos: [38, 50, 54] },
+      risk: { look: [-10, 0, 4], pos: [-54, 40, 46] },
+      yonlendir: { look: [-13, 1, 19], pos: [-36, 13, 42] },
+      eslestir: { look: [-13, 2, 8], pos: [-27, 10, -4] },
+      olc: { look: [-13, 1.5, 9.5], pos: [-13, 14, 28] },
+      senaryo: { look: [-13, 1.5, 9.5], pos: [-1, 14, -1] },
+      veri: { look: [-8, 4, -2], pos: [32, 30, 36] },
+      panel: { look: [-8, 0, 4], pos: [-8.01, 92, 26] },
+      ozgun: { look: [-6, 0, 2], pos: [-6.01, 120, 8] },
+      plan: { look: [-6, 0, 4], pos: [-58, 26, -26] },
+      etki: { look: [-8, 0, 6], pos: [48, 24, -28] },
+      ortak: { look: [-8, 2, 6], pos: [42, 26, 52], orbit: 1 },
+      juri: { look: [-8, 2, 6], pos: [-32, 32, 62], orbit: 1 }
+    };
+    var OVERLAY = { bul: [1, 0.1], risk: [1, 1], panel: [1, 0.08], ozgun: [1, 0.25] };
+    var AFTER = { olc: 1, veri: 1, panel: 1, ozgun: 1, plan: 1, etki: 1, ortak: 1, juri: 1 };
+    var DURAK = { yonlendir: 1, eslestir: 1, olc: 1, senaryo: 1, veri: 1, panel: 1, ozgun: 1, plan: 1, etki: 1, ortak: 1, juri: 1 };
+
+    var camPos = new THREE.Vector3(60, 60, 90), camLook = new THREE.Vector3(-8, 0, 6), tPos = new THREE.Vector3(), tLook = new THREE.Vector3();
+    var mouse = { x: 0, y: 0 };
+    function resize() {
+      var w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false); camera.aspect = w / h;
+      if (w > 960) camera.setViewOffset(w, h, -w * 0.17, 0, w, h); else camera.clearViewOffset();
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener("resize", resize); resize();
+
+    /* fare: risk hücresi bilgisi */
+    var ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), tip = $("tip");
+    var RT = ["", "çok düşük", "düşük", "orta", "yüksek", "çok yüksek"], lvl = function (v) { return v > 0.66 ? "yüksek" : v > 0.33 ? "orta" : "düşük"; };
+    window.addEventListener("pointermove", function (e) {
+      mouse.x = e.clientX / window.innerWidth * 2 - 1; mouse.y = e.clientY / window.innerHeight * 2 - 1;
+      if (e.target !== canvas || !OVERLAY[S.ch]) { tip.hidden = true; canvas.style.cursor = ""; return; }
+      ndc.set(mouse.x, -mouse.y); ray.setFromCamera(ndc, camera);
+      var hit = ray.intersectObject(hexes)[0];
+      if (!hit) { tip.hidden = true; canvas.style.cursor = ""; return; }
+      var c = cells[hit.instanceId], lst = 34 + c.H * 16 + (S.tmax - 40) * 1.1;
+      tip.innerHTML = "<b>" + c.name + "</b>" + '<div class="r"><span>Risk</span><span>' + c.score + "/5 · " + RT[c.score] + "</span></div>" +
+        '<div class="r"><span>Yüzey sıcaklığı</span><span>~' + fmt(lst) + "°C</span></div>" + '<div class="r"><span>Nüfus yoğunluğu</span><span>' + lvl(c.E) + "</span></div>" +
+        '<div class="r"><span>Kırılganlık</span><span>' + lvl(c.V) + "</span></div>" + (c.E < 0.12 && c.H > 0.45 ? '<div class="r"><span>Not</span><span>sıcak ama nüfus yok</span></div>' : "");
+      tip.style.left = Math.min(e.clientX, window.innerWidth - 240) + "px"; tip.style.top = Math.min(e.clientY, window.innerHeight - 150) + "px";
+      tip.hidden = false; canvas.style.cursor = "crosshair";
+    });
+    window.addEventListener("scroll", function () { tip.hidden = true; }, { passive: true });
+
+    var api = { coolMain: 0 }, coolAll = 0, ov = 0, tall = 0, durakV = 0, rest = 0, sailV = 0;
+    var last = performance.now(), ringT = 0, pkT = 0, pingI = 0, pingT = 0, dum = new THREE.Object3D(), tc = new THREE.Color(), v3 = new THREE.Vector3(), sunDir = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+
+    api.frame = function (now, t) {
+      var dt = Math.min(0.05, (now - last) / 1000); last = now;
+      var k = reduce ? 1 : 1 - Math.pow(0.03, dt), kc = reduce ? 1 : 1 - Math.pow(0.025, dt);
+      var ch = S.ch, shot = SHOTS[ch] || SHOTS.giris, mob = camera.aspect < 1;
+
+      /* kamera */
+      tLook.set(shot.look[0], shot.look[1], shot.look[2]);
+      tPos.set(shot.pos[0], shot.pos[1], shot.pos[2]).sub(tLook).multiplyScalar(mob ? 1.4 : 1);
+      if (shot.orbit && !reduce) tPos.applyAxisAngle(up, Math.sin(t * 0.05) * 0.5);
+      tPos.add(tLook);
+      if (!reduce) { tPos.x += mouse.x * 1.5; tPos.y -= mouse.y * 1; }
+      camPos.lerp(tPos, kc); camLook.lerp(tLook, kc);
+      camera.position.copy(camPos); camera.lookAt(camLook);
+      sky.position.copy(camPos);
+
+      /* güneş saati */
+      var dayF = (S.clock - 7) / 12, az = Math.PI * dayF, el = Math.sin(Math.PI * dayF) * 1.12 + 0.08;
+      sunDir.set(Math.cos(az) * Math.cos(el), Math.sin(el), 0.45 * Math.cos(el)).normalize();
+      sun.position.copy(sun.target.position).addScaledVector(sunDir, 160);
+      sun.intensity = 0.45 + 0.75 * Math.sin(el);
+      sunSprite.position.copy(camPos).addScaledVector(sunDir, 800);
+      var heat = clamp((S.air - 28) / 16, 0, 1);
+      skyU.hor.value.copy(HOR).lerp(HOR_HOT, heat); skyU.top.value.copy(TOP).lerp(TOP_HOT, heat * 0.7);
+      scene.fog.color.copy(skyU.hor.value);
+
+      /* durum hedefleri */
+      var ovT = OVERLAY[ch] || [0, 0];
+      ov += (ovT[0] - ov) * k; tall += (ovT[1] - tall) * k;
+      var cAllT = AFTER[ch] ? 1 : 0; coolAll += (cAllT - coolAll) * k;
+      var cMainT = ch === "senaryo" ? (S.step >= 3 ? 1 : 0) : cAllT; api.coolMain += (cMainT - api.coolMain) * k;
+      durakV += ((DURAK[ch] ? 1 : 0) - durakV) * k;
+      var restT = (ch === "yonlendir" || (S.alertWin && DURAK[ch])) ? 1 : 0; rest += (restT - rest) * (reduce ? 1 : 1 - Math.pow(0.4, dt));
+      sailV += ((api.coolMain > 0.5 ? 1 : 0) - sailV) * k;
+
+      /* risk hücreleri */
+      var tf = clamp((S.tmax - 30) / 16.2, 0, 1), scanX = -80;
+      if (ch === "bul") scanX = reduce ? 60 : -70 + (now - scanStart) / 1000 * 13;
+      hexes.visible = ov > 0.01;
+      if (hexes.visible) {
+        for (var i = 0; i < cells.length; i++) {
+          var c = cells[i];
+          var rvT = ch === "bul" ? (scanX > c.x ? 1 : 0) : 1; c.rv += (rvT - c.rv) * k;
+          var hT = ov * c.rv * (0.15 + tall * (0.4 + Math.pow(c.r01, 1.4) * 16 * (0.45 + 0.55 * tf)) * (1 - 0.45 * coolAll * c.fixW));
+          c.h += (hT - c.h) * k;
+          dum.position.set(c.x, 0.1, c.z); dum.scale.set(1, Math.max(0.001, c.h), 1); dum.updateMatrix(); hexes.setMatrixAt(i, dum.matrix);
+          inferno(0.2 + 0.78 * c.r01 * (0.55 + 0.45 * tf), tc).lerp(COOL, coolAll * c.fixW * 0.8); hexes.setColorAt(i, tc);
+        }
+        hexes.instanceMatrix.needsUpdate = true; hexes.instanceColor.needsUpdate = true;
+        hexMat.opacity = 0.5 * ov + 0.12;
+      }
+
+      /* uydu */
+      var satOn = ch === "bul";
+      sat.visible = strip.visible = beam.visible = satOn;
+      if (satOn) {
+        var sx = clamp(scanX, -70, 70);
+        sat.position.set(sx + 4, 58, -4); sat.rotation.y = t * 0.2;
+        strip.position.x = sx; strip.position.z = 3;
+        beam.position.set(sx + 2, 29, -1); beam.scale.set(1, 58, 1); beam.rotation.z = Math.atan2(4, 58) * -1;
+        scanMat.opacity = scanX > 60 ? 0.1 : 0.35;
+        satTag.pos = sat.position.clone().add(new THREE.Vector3(0, 2.5, 0));
+      }
+
+      /* okullar: serin çatı */
+      schools.forEach(function (s) {
+        var cf = s === school ? api.coolMain : (s.fix ? coolAll : 0);
+        s.roofMat.color.setRGB(0.37 + (0.95 - 0.37) * cf, 0.345 + (0.95 - 0.345) * cf, 0.4 + (0.93 - 0.4) * cf);
+        s.led.material.color.setHex(Math.sin(t * 4 + s.x) > 0.6 ? 0xffffff : 0x4fd1c5);
+      });
+      school.sail.scale.y = Math.max(0.001, sailV); school.sail.visible = sailV > 0.01;
+      school.kids.forEach(function (kd) { kd.m.position.lerpVectors(kd.a, kd.b, sailV); kd.m.position.y = 0.07 + (reduce ? 0 : Math.abs(Math.sin(t * 3 + kd.ph)) * 0.08); });
+
+      /* senaryo okul vurgusu */
+      if (ch === "senaryo" && S.step >= 1 && S.step < 3) { ringT -= 0; }
+
+      /* Serin Durak + işçiler */
+      duraks.forEach(function (d, i) { var s = clamp(durakV * 1.2 - i * 0.1, 0.001, 1); d.scale.set(s, s, s); d.visible = s > 0.01; });
+      workers.forEach(function (w) { w.m.position.lerpVectors(w.a, w.b, rest); });
+
+      /* vinç */
+      if (!reduce) crane.jib.rotation.y = Math.sin(t * 0.15) * 1.2;
+
+      /* gönüllüler ve kayıt halkaları */
+      var volOn = ch === "bul";
+      vols.forEach(function (v) { v.m.visible = volOn; });
+      pingTag.on = ["bul"];
+      if (volOn) {
+        pingT -= dt;
+        if (pingT <= 0) { pingI = (pingI + 1) % vols.length; pingT = reduce ? 999 : 1.8; var pv = vols[pingI]; ring(pv.x, 0.15, pv.z, 0x4fd1c5, 3, 1.6); pingTag.text = pv.t; pingTag.pos = new THREE.Vector3(pv.x, 2, pv.z); }
+      }
+
+      /* uyarı dalgaları */
+      ringT -= dt;
+      if (ringT <= 0 && !reduce) {
+        if (ch === "yonlendir") { var tg = [P.site, P.kurye, P.market][Math.floor(Math.random() * 3)]; ring(tg.x, 0.2, tg.z, 0xe8473a, 6, 2); ringT = 0.6; }
+        else if (ch === "senaryo" && S.step >= 1) { ring(P.school.x, 0.2, P.school.z + 1, S.step >= 3 ? 0x4fd1c5 : 0xe8473a, 7, 1.8); ringT = 0.7; }
+        else if (S.alertWin && DURAK[ch]) { ring(P.site.x, 0.2, P.site.z, 0xf6b03c, 5, 2.2); ringT = 1.6; }
+        else ringT = 0.4;
+      }
+      rings.forEach(function (R) { if (R.life <= 0) return; R.life -= dt; var f = 1 - R.life / R.max; R.m.scale.setScalar(0.3 + f * R.size); R.m.material.opacity = (1 - f) * 0.85; if (R.life <= 0) R.m.visible = false; });
+
+      /* veri paketleri */
+      pkT -= dt;
+      if (pkT <= 0 && !reduce) { var src = schools[Math.floor(Math.random() * schools.length)]; sendPacket(src.sensor); pkT = ch === "veri" ? 0.22 : 2.4; }
+      packets.forEach(function (p) {
+        if (p.t >= 1) return; p.t += dt / 2.2; var u = Math.min(1, p.t), iu = 1 - u;
+        p.m.position.set(iu * iu * p.a.x + 2 * iu * u * p.c.x + u * u * p.b.x, iu * iu * p.a.y + 2 * iu * u * p.c.y + u * u * p.b.y, iu * iu * p.a.z + 2 * iu * u * p.c.z + u * u * p.b.z);
+        if (p.t >= 1) { p.m.visible = false; ring(dishPos.x, dishPos.y - 1.5, dishPos.z, 0x7ff0e4, 1.6, 0.6); }
+      });
+
+      /* sıcak hava */
+      pMat.opacity = clamp((S.air - 30) / 12, 0, 1) * (ch === "sorun" ? 0.75 : 0.4) * (1 - ov * 0.6);
+      for (var j = 0; j < PN; j++) { var d = pD[j]; if (!reduce) { d.y += d.sp * dt * (0.6 + heat); if (d.y > 14) d.y = 0; } pPos[j * 3] = d.x + (reduce ? 0 : Math.sin(t * 1.5 + j) * 0.2); pPos[j * 3 + 1] = d.y; pPos[j * 3 + 2] = d.z; }
+      pGeo.attributes.position.needsUpdate = true;
+
+      renderer.render(scene, camera);
+
+      /* etiketler */
+      var W = window.innerWidth, Hh = window.innerHeight;
+      TAGS.forEach(function (tg) {
+        var vis = tg.pos && tg.on.indexOf(ch) >= 0 && (tg !== pingTag || volOn);
+        if (vis) {
+          v3.copy(tg.pos).project(camera);
+          if (v3.z > 1 || Math.abs(v3.x) > 1.1 || Math.abs(v3.y) > 1.1) vis = false;
+        }
+        tg.el.style.opacity = vis ? "1" : "0";
+        if (!vis) return;
+        var txt = typeof tg.text === "function" ? tg.text() : tg.text;
+        if (txt !== tg.last) { tg.el.textContent = txt; tg.last = txt; }
+        var cl = "tag " + (typeof tg.cls === "function" ? tg.cls() : tg.cls);
+        if (tg.el.className !== cl) tg.el.className = cl;
+        tg.el.style.transform = "translate(" + ((v3.x + 1) / 2 * W).toFixed(1) + "px," + ((1 - v3.y) / 2 * Hh).toFixed(1) + "px) translate(-50%,-130%)";
+      });
+    };
+    return api;
+  }
+})();
+</script>
