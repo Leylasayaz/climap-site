@@ -2,7 +2,7 @@
 
 **Bul. Yönlendir. Ölç.** Diyarbakır'da aşırı sıcaktan en çok etkilenen ama resmi verilerde görünmeyen çocukları ve açık havada çalışanları bulan, yardımı onlara yönlendiren ve sonucu ölçen iklim adaleti haritası.
 
-Tech4Climate Ideathon · Diyarbakır 2026 · Sultan Ayaz
+Tech4Climate Ideathon · Diyarbakır 2026 · B-8291
 
 Bu depo, Clim-Map'in etkileşimli harita sitesidir. Site gerçek bir Diyarbakır haritasıyla açılır ve 8 duraklı rehberli bir turla başlar: harita sırayla şehir geneline, bir okul çatısına, bir pazar yerine, bir şantiyeye, yaşlıların yoğun yaşadığı bir mahalleye, bir meydana ("Neden her eve değil?") uçar; ardından destekçi ve belediye görünümüyle biter. Turdan sonra serbest keşif modunda katmanlar, Belediye / Destekçi / Vatandaş görünümleri, "Yarın 41°C ise ne olur?" uyarısı ve tıklanabilir sıcak noktalar kullanılabilir. Altında kısa bir anlatım var.
 
